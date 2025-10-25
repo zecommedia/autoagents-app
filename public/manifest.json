@@ -1,0 +1,49 @@
+{
+  "name": "AutoAgents AI - Image Editor",
+  "short_name": "AutoAgents",
+  "description": "AI-Powered Image Editing Platform with Clone Mode, Mockup Generator & More",
+  "theme_color": "#6366f1",
+  "background_color": "#ffffff",
+  "display": "standalone",
+  "orientation": "portrait",
+  "scope": "/",
+  "start_url": "/",
+  "icons": [
+    {
+      "src": "logo192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "logo512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["productivity", "graphics", "photo"],
+  "shortcuts": [
+    {
+      "name": "Clone Mode",
+      "short_name": "Clone",
+      "description": "AI Pattern Extraction & Cloning",
+      "url": "/?mode=clone",
+      "icons": [{ "src": "logo192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Mockup Generator",
+      "short_name": "Mockup",
+      "description": "Create Product Mockups",
+      "url": "/?mode=mockup",
+      "icons": [{ "src": "logo192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Redesign Mode",
+      "short_name": "Redesign",
+      "description": "AI Image Redesign",
+      "url": "/?mode=redesign",
+      "icons": [{ "src": "logo192.png", "sizes": "192x192" }]
+    }
+  ]
+}

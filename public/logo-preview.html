@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Logo Preview - Choose Your Style</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background: linear-gradient(135deg, #312e81 0%, #1e1b4b 100%);
+        }
+        .logo-card {
+            transition: all 0.3s ease;
+        }
+        .logo-card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+        }
+        .code-snippet {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            font-family: 'Courier New', monospace;
+            font-size: 0.875rem;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body class="min-h-screen p-8">
+    <div class="max-w-7xl mx-auto">
+        <div class="text-center mb-12">
+            <h1 class="text-5xl font-bold text-white mb-4">🎨 Choose Your Logo Style</h1>
+            <p class="text-xl text-zinc-300">Click on any logo to copy the code snippet</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            <!-- Yellow Logo -->
+            <div class="logo-card bg-zinc-900/80 backdrop-blur-sm rounded-2xl p-8 border border-zinc-700 cursor-pointer"
+                 onclick="copyCode('yellow')">
+                <div class="flex justify-center mb-6 p-8 bg-zinc-800 rounded-xl">
+                    <img src="/logo.svg" alt="Yellow Logo" width="80" height="80">
+                </div>
+                <h3 class="text-2xl font-bold text-white mb-2 text-center">Yellow (Original)</h3>
+                <p class="text-zinc-400 text-center mb-4">Classic solid yellow logo</p>
+                <div class="code-snippet">
+const SELECTED_LOGO = 'yellow';
+                </div>
+                <div class="mt-4 text-center">
+                    <span class="inline-block px-3 py-1 bg-yellow-500/20 text-yellow-400 rounded-full text-sm">
+                        🟡 Single Color
+                    </span>
+                </div>
+            </div>
+
+            <!-- Gradient Logo -->
+            <div class="logo-card bg-zinc-900/80 backdrop-blur-sm rounded-2xl p-8 border border-zinc-700 cursor-pointer"
+                 onclick="copyCode('gradient')">
+                <div class="flex justify-center mb-6 p-8 bg-zinc-800 rounded-xl">
+                    <img src="/logo-gradient.svg" alt="Gradient Logo" width="80" height="80">
+                </div>
+                <h3 class="text-2xl font-bold text-white mb-2 text-center">Yellow Gradient ⭐</h3>
+                <p class="text-zinc-400 text-center mb-4">Smooth amber gradient</p>
+                <div class="code-snippet">
+const SELECTED_LOGO = 'gradient';
+                </div>
+                <div class="mt-4 text-center">
+                    <span class="inline-block px-3 py-1 bg-yellow-500/20 text-yellow-400 rounded-full text-sm">
+                        ⭐ Default
+                    </span>
+                </div>
+            </div>
+
+            <!-- Blue Logo -->
+            <div class="logo-card bg-zinc-900/80 backdrop-blur-sm rounded-2xl p-8 border border-zinc-700 cursor-pointer"
+                 onclick="copyCode('blue')">
+                <div class="flex justify-center mb-6 p-8 bg-zinc-800 rounded-xl">
+                    <img src="/logo-blue.svg" alt="Blue Logo" width="80" height="80">
+                </div>
+                <h3 class="text-2xl font-bold text-white mb-2 text-center">Blue Ocean</h3>
+                <p class="text-zinc-400 text-center mb-4">Cool blue gradient</p>
+                <div class="code-snippet">
+const SELECTED_LOGO = 'blue';
+                </div>
+                <div class="mt-4 text-center">
+                    <span class="inline-block px-3 py-1 bg-blue-500/20 text-blue-400 rounded-full text-sm">
+                        🔵 Professional
+                    </span>
+                </div>
+            </div>
+
+            <!-- Purple Logo -->
+            <div class="logo-card bg-zinc-900/80 backdrop-blur-sm rounded-2xl p-8 border border-zinc-700 cursor-pointer"
+                 onclick="copyCode('purple')">
+                <div class="flex justify-center mb-6 p-8 bg-zinc-800 rounded-xl">
+                    <img src="/logo-purple.svg" alt="Purple Logo" width="80" height="80">
+                </div>
+                <h3 class="text-2xl font-bold text-white mb-2 text-center">Purple Dreams</h3>
+                <p class="text-zinc-400 text-center mb-4">Elegant purple gradient</p>
+                <div class="code-snippet">
+const SELECTED_LOGO = 'purple';
+                </div>
+                <div class="mt-4 text-center">
+                    <span class="inline-block px-3 py-1 bg-purple-500/20 text-purple-400 rounded-full text-sm">
+                        🟣 Creative
+                    </span>
+                </div>
+            </div>
+
+            <!-- Rainbow Logo -->
+            <div class="logo-card bg-zinc-900/80 backdrop-blur-sm rounded-2xl p-8 border border-zinc-700 cursor-pointer"
+                 onclick="copyCode('rainbow')">
+                <div class="flex justify-center mb-6 p-8 bg-zinc-800 rounded-xl">
+                    <img src="/logo-rainbow.svg" alt="Rainbow Logo" width="80" height="80">
+                </div>
+                <h3 class="text-2xl font-bold text-white mb-2 text-center">Rainbow Magic</h3>
+                <p class="text-zinc-400 text-center mb-4">Multi-color vibrant</p>
+                <div class="code-snippet">
+const SELECTED_LOGO = 'rainbow';
+                </div>
+                <div class="mt-4 text-center">
+                    <span class="inline-block px-3 py-1 bg-gradient-to-r from-red-500 via-yellow-500 to-purple-500 text-white rounded-full text-sm">
+                        🌈 Vibrant
+                    </span>
+                </div>
+            </div>
+
+            <!-- Custom Logo Card -->
+            <div class="logo-card bg-zinc-900/80 backdrop-blur-sm rounded-2xl p-8 border border-dashed border-zinc-600">
+                <div class="flex justify-center items-center mb-6 p-8 bg-zinc-800 rounded-xl h-[112px]">
+                    <div class="text-center">
+                        <div class="text-6xl mb-2">➕</div>
+                        <p class="text-zinc-500 text-sm">Your Logo Here</p>
+                    </div>
+                </div>
+                <h3 class="text-2xl font-bold text-white mb-2 text-center">Custom Logo</h3>
+                <p class="text-zinc-400 text-center mb-4">Upload your own design</p>
+                <div class="text-center">
+                    <a href="LOGO_CUSTOMIZATION.md" 
+                       class="inline-block px-6 py-3 bg-gradient-to-r from-blue-500 to-cyan-400 text-white font-semibold rounded-lg hover:opacity-90 transition-all">
+                        📖 Read Guide
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Instructions -->
+        <div class="mt-12 bg-zinc-900/80 backdrop-blur-sm rounded-2xl p-8 border border-zinc-700">
+            <h2 class="text-3xl font-bold text-white mb-6 text-center">📝 How to Change Logo</h2>
+            <ol class="space-y-4 text-zinc-300 max-w-3xl mx-auto">
+                <li class="flex items-start">
+                    <span class="flex-shrink-0 w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold mr-4">1</span>
+                    <div>
+                        <p class="font-semibold text-white mb-1">Open the Login component</p>
+                        <code class="text-sm bg-zinc-800 px-2 py-1 rounded">components/Login.tsx</code>
+                    </div>
+                </li>
+                <li class="flex items-start">
+                    <span class="flex-shrink-0 w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold mr-4">2</span>
+                    <div>
+                        <p class="font-semibold text-white mb-1">Find the line</p>
+                        <code class="text-sm bg-zinc-800 px-2 py-1 rounded">const SELECTED_LOGO = 'gradient';</code>
+                    </div>
+                </li>
+                <li class="flex items-start">
+                    <span class="flex-shrink-0 w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold mr-4">3</span>
+                    <div>
+                        <p class="font-semibold text-white mb-1">Change it to your preferred logo</p>
+                        <p class="text-sm text-zinc-400">Click any logo above to copy the code!</p>
+                    </div>
+                </li>
+                <li class="flex items-start">
+                    <span class="flex-shrink-0 w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold mr-4">4</span>
+                    <div>
+                        <p class="font-semibold text-white mb-1">Save and refresh</p>
+                        <p class="text-sm text-zinc-400">Your new logo will appear!</p>
+                    </div>
+                </li>
+            </ol>
+        </div>
+
+        <!-- Toast notification -->
+        <div id="toast" class="fixed bottom-8 right-8 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg transform translate-y-32 transition-transform duration-300">
+            ✅ Code copied to clipboard!
+        </div>
+    </div>
+
+    <script>
+        function copyCode(logoName) {
+            const code = `const SELECTED_LOGO = '${logoName}';`;
+            navigator.clipboard.writeText(code).then(() => {
+                showToast();
+            });
+        }
+
+        function showToast() {
+            const toast = document.getElementById('toast');
+            toast.style.transform = 'translateY(0)';
+            setTimeout(() => {
+                toast.style.transform = 'translateY(8rem)';
+            }, 2000);
+        }
+    </script>
+</body>
+</html>

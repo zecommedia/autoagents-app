@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#6366f1;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#8b5cf6;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Background circle -->
+  <circle cx="50" cy="50" r="45" fill="url(#grad)"/>
+  
+  <!-- AI Image Editor Icon -->
+  <!-- Sparkle/Magic icon representing AI -->
+  <g fill="white">
+    <!-- Center star -->
+    <path d="M50 25 L52 35 L62 35 L54 41 L57 51 L50 45 L43 51 L46 41 L38 35 L48 35 Z"/>
+    
+    <!-- Small sparkles -->
+    <circle cx="30" cy="30" r="2"/>
+    <circle cx="70" cy="30" r="2"/>
+    <circle cx="30" cy="70" r="2"/>
+    <circle cx="70" cy="70" r="2"/>
+    
+    <!-- Image frame -->
+    <rect x="25" y="55" width="50" height="35" rx="3" fill="none" stroke="white" stroke-width="3"/>
+    <path d="M 30 80 L 40 70 L 50 75 L 60 65 L 70 75 L 70 85 L 30 85 Z" fill="white" opacity="0.7"/>
+    <circle cx="35" cy="65" r="3" fill="white"/>
+  </g>
+</svg>

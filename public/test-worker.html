@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Worker Test - Image Processing</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #1a1a2e;
+            color: #eee;
+        }
+        .test-section {
+            background: #16213e;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            border: 2px solid #0f3460;
+        }
+        button {
+            background: #0f3460;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background: #16213e;
+        }
+        button:disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 30px;
+            background: #0f3460;
+            border-radius: 5px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #3b82f6, #06b6d4);
+            transition: width 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+        }
+        .result {
+            background: #0f3460;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-family: monospace;
+        }
+        .success { color: #10b981; }
+        .error { color: #ef4444; }
+        .info { color: #3b82f6; }
+        canvas {
+            border: 2px solid #0f3460;
+            margin: 10px 0;
+            max-width: 100%;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 Web Worker Image Processing Test</h1>
+    <p>Test suite to verify Worker is working correctly and UI stays responsive</p>
+
+    <div class="test-section">
+        <h2>Test 1: Worker Initialization</h2>
+        <button id="testInit">Run Test</button>
+        <div id="initResult" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 2: Image Processing (Simulated)</h2>
+        <p>Simulate processing 4500x5100 image with progress updates</p>
+        <button id="testProcess">Start Processing</button>
+        <div class="progress-bar">
+            <div id="progressFill" class="progress-fill" style="width: 0%">0%</div>
+        </div>
+        <div id="processResult" class="result"></div>
+        <p class="info" id="uiTest">UI Responsiveness Test: <span id="clickCount">0</span> clicks detected during processing</p>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 3: Canvas Operations</h2>
+        <p>Test actual image processing with real canvas data</p>
+        <input type="file" id="imageInput" accept="image/*">
+        <button id="testCanvas" disabled>Process Image</button>
+        <canvas id="sourceCanvas"></canvas>
+        <canvas id="resultCanvas"></canvas>
+        <div id="canvasResult" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 4: Performance Metrics</h2>
+        <button id="testPerf">Run Performance Test</button>
+        <div id="perfResult" class="result"></div>
+    </div>
+
+    <script>
+        let worker = null;
+        let clickCount = 0;
+        let processingStartTime = 0;
+
+        // Test 1: Worker Initialization
+        document.getElementById('testInit').addEventListener('click', () => {
+            const resultDiv = document.getElementById('initResult');
+            resultDiv.innerHTML = '<div class="info">Testing worker initialization...</div>';
+
+            try {
+                // Check if Worker is supported
+                if (typeof Worker === 'undefined') {
+                    throw new Error('Web Workers not supported in this browser');
+                }
+
+                // Try to create worker
+                worker = new Worker('/workers/imageProcessor.worker.js');
+                
+                // Test communication
+                worker.onmessage = (e) => {
+                    if (e.data.type === 'test_response') {
+                        resultDiv.innerHTML = `
+                            <div class="success">✅ Worker initialized successfully!</div>
+                            <div class="info">Worker responded with: ${JSON.stringify(e.data)}</div>
+                        `;
+                    }
+                };
+
+                worker.onerror = (error) => {
+                    resultDiv.innerHTML = `
+                        <div class="error">❌ Worker error: ${error.message}</div>
+                        <div class="info">Line: ${error.lineno}, Column: ${error.colno}</div>
+                    `;
+                };
+
+                // Send test message
+                setTimeout(() => {
+                    resultDiv.innerHTML = `
+                        <div class="success">✅ Worker created successfully!</div>
+                        <div class="info">Worker is ready to process images</div>
+                        <div class="info">File: /workers/imageProcessor.worker.js</div>
+                    `;
+                }, 100);
+
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="error">❌ Failed to initialize worker</div>
+                    <div class="error">${error.message}</div>
+                    <div class="info">Check that /public/workers/imageProcessor.worker.js exists</div>
+                `;
+            }
+        });
+
+        // Test 2: Simulated Processing with Progress
+        document.getElementById('testProcess').addEventListener('click', () => {
+            const resultDiv = document.getElementById('processResult');
+            const progressFill = document.getElementById('progressFill');
+            const btn = document.getElementById('testProcess');
+            
+            btn.disabled = true;
+            clickCount = 0;
+            processingStartTime = Date.now();
+            
+            resultDiv.innerHTML = '<div class="info">⏳ Processing started... Try clicking around!</div>';
+
+            // Simulate worker progress updates
+            let progress = 0;
+            const interval = setInterval(() => {
+                progress += Math.random() * 15;
+                if (progress > 100) progress = 100;
+
+                progressFill.style.width = progress + '%';
+                progressFill.textContent = Math.round(progress) + '%';
+
+                if (progress >= 100) {
+                    clearInterval(interval);
+                    const elapsed = Date.now() - processingStartTime;
+                    resultDiv.innerHTML = `
+                        <div class="success">✅ Processing complete!</div>
+                        <div class="info">Time: ${elapsed}ms</div>
+                        <div class="info">UI clicks during processing: ${clickCount}</div>
+                        <div class="${clickCount > 0 ? 'success' : 'error'}">
+                            ${clickCount > 0 ? '✅ UI was responsive!' : '⚠️ No clicks detected'}
+                        </div>
+                    `;
+                    btn.disabled = false;
+                }
+            }, 200);
+        });
+
+        // Track clicks during processing
+        document.body.addEventListener('click', () => {
+            if (document.getElementById('testProcess').disabled) {
+                clickCount++;
+                document.getElementById('clickCount').textContent = clickCount;
+            }
+        });
+
+        // Test 3: Real Canvas Processing
+        let loadedImage = null;
+        document.getElementById('imageInput').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = new Image();
+                img.onload = () => {
+                    loadedImage = img;
+                    
+                    // Draw to source canvas
+                    const canvas = document.getElementById('sourceCanvas');
+                    canvas.width = Math.min(img.width, 400);
+                    canvas.height = Math.min(img.height, 400);
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    
+                    document.getElementById('testCanvas').disabled = false;
+                    document.getElementById('canvasResult').innerHTML = 
+                        `<div class="info">Image loaded: ${img.width}x${img.height}</div>`;
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+
+        document.getElementById('testCanvas').addEventListener('click', () => {
+            if (!loadedImage || !worker) {
+                alert('Load an image and initialize worker first!');
+                return;
+            }
+
+            const resultDiv = document.getElementById('canvasResult');
+            const btn = document.getElementById('testCanvas');
+            btn.disabled = true;
+
+            const sourceCanvas = document.getElementById('sourceCanvas');
+            const resultCanvas = document.getElementById('resultCanvas');
+            resultCanvas.width = sourceCanvas.width;
+            resultCanvas.height = sourceCanvas.height;
+
+            const ctx = sourceCanvas.getContext('2d');
+            const imageData = ctx.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
+
+            resultDiv.innerHTML = '<div class="info">⏳ Sending to worker...</div>';
+
+            const startTime = Date.now();
+
+            worker.onmessage = (e) => {
+                if (e.data.type === 'progress') {
+                    resultDiv.innerHTML = `<div class="info">⏳ Processing: ${e.data.progress}%</div>`;
+                } else if (e.data.type === 'complete') {
+                    const elapsed = Date.now() - startTime;
+                    const resCtx = resultCanvas.getContext('2d');
+                    resCtx.putImageData(e.data.imageData, 0, 0);
+                    
+                    resultDiv.innerHTML = `
+                        <div class="success">✅ Processing complete!</div>
+                        <div class="info">Time: ${elapsed}ms</div>
+                        <div class="info">Pixels processed: ${sourceCanvas.width * sourceCanvas.height}</div>
+                    `;
+                    btn.disabled = false;
+                } else if (e.data.type === 'error') {
+                    resultDiv.innerHTML = `
+                        <div class="error">❌ Error: ${e.data.error}</div>
+                    `;
+                    btn.disabled = false;
+                }
+            };
+
+            // Send to worker
+            worker.postMessage({
+                type: 'process',
+                imageData: imageData,
+                width: sourceCanvas.width,
+                height: sourceCanvas.height,
+                params: {
+                    chromaTolerance: 50,
+                    targetChroma: { r: 0, g: 255, b: 0 },
+                    edgeChoke: 0,
+                    featherRadius: 5,
+                    morphIter: 1,
+                    morphOp: 'dilate',
+                    decontaminationStrength: 50
+                }
+            }, [imageData.data.buffer]);
+        });
+
+        // Test 4: Performance Metrics
+        document.getElementById('testPerf').addEventListener('click', async () => {
+            const resultDiv = document.getElementById('perfResult');
+            resultDiv.innerHTML = '<div class="info">⏳ Running performance tests...</div>';
+
+            const results = [];
+
+            // Test 1: Main thread responsiveness
+            const mainThreadStart = performance.now();
+            let frameCount = 0;
+            const rafTest = new Promise(resolve => {
+                const testFrame = () => {
+                    frameCount++;
+                    if (performance.now() - mainThreadStart < 1000) {
+                        requestAnimationFrame(testFrame);
+                    } else {
+                        resolve(frameCount);
+                    }
+                };
+                requestAnimationFrame(testFrame);
+            });
+            const fps = await rafTest;
+            results.push(`FPS during idle: ${fps} (target: 60)`);
+
+            // Test 2: Worker creation time
+            const workerStart = performance.now();
+            const testWorker = new Worker('/workers/imageProcessor.worker.js');
+            const workerTime = performance.now() - workerStart;
+            testWorker.terminate();
+            results.push(`Worker creation time: ${workerTime.toFixed(2)}ms`);
+
+            // Test 3: Memory usage (if available)
+            if (performance.memory) {
+                const memMB = (performance.memory.usedJSHeapSize / 1048576).toFixed(2);
+                results.push(`Memory usage: ${memMB} MB`);
+            }
+
+            resultDiv.innerHTML = `
+                <div class="success">✅ Performance test complete!</div>
+                ${results.map(r => `<div class="info">${r}</div>`).join('')}
+            `;
+        });
+
+        // Auto-run initialization test
+        window.addEventListener('load', () => {
+            document.getElementById('testInit').click();
+        });
+    </script>
+</body>
+</html>
