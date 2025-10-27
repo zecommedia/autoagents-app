@@ -175,8 +175,14 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ history, onSendMessage, isGenerat
                 ) : (
                     <div className="space-y-6">
                         {history.map((msg, index) => {
-                             const imageParts = msg.parts.filter(p => 'inlineData' in p);
-                             const textPart = msg.parts.find(p => 'text' in p);
+                             // Safety check: ensure parts is an array
+                             if (!msg.parts || !Array.isArray(msg.parts)) {
+                                 console.error('Invalid message parts:', msg);
+                                 return null;
+                             }
+                             
+                             const imageParts = msg.parts.filter(p => p && typeof p === 'object' && 'inlineData' in p);
+                             const textPart = msg.parts.find(p => p && typeof p === 'object' && 'text' in p);
                              const hasImages = imageParts.length > 0;
                              
                              // Fix v2: Handle both string and object text parts (for cloud API compatibility)

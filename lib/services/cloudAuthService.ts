@@ -49,9 +49,32 @@ class CloudAuthService {
     this.apiClient.interceptors.response.use(
       (response) => response,
       async (error) => {
-        if (error.response?.status === 401 || error.response?.status === 403) {
-          // Token expired or invalid
-          this.clearAuth();
+        const status = error.response?.status;
+        const errorMessage = error.response?.data?.error;
+        
+        if (status === 401 || status === 403) {
+          // Check if it's an invalid token signature (server restart)
+          if (errorMessage === 'Invalid token' || errorMessage?.includes('signature')) {
+            console.warn('Token signature invalid (server may have restarted). Clearing auth...');
+            this.clearAuth();
+            
+            // Try to automatically re-authenticate if we have a stored license
+            const storedLicense = this.getSavedLicenseKey();
+            if (storedLicense) {
+              console.log('Attempting automatic re-authentication...');
+              try {
+                await this.verifyLicense(storedLicense);
+                console.log('✅ Automatic re-authentication successful');
+                // Retry the original request
+                return this.apiClient.request(error.config);
+              } catch (reAuthError) {
+                console.error('Automatic re-authentication failed:', reAuthError);
+              }
+            }
+          } else {
+            // Token expired or other auth issue
+            this.clearAuth();
+          }
           throw new Error('Authentication expired. Please re-enter your license key.');
         }
         throw error;

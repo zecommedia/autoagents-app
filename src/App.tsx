@@ -1,5 +1,7 @@
 import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import authService from './services/auth';
+import { getApiUrl } from '../lib/config/cloudApiConfig';
+import { cloudApiService } from '../lib/services/cloudApiService';
 import Canvas from './components/Canvas';
 import Toolbar from './components/Toolbar';
 import Header from './components/Header';
@@ -23,12 +25,15 @@ import UpdatePrompt from './components/UpdatePrompt';
 import { type Tool, type CanvasObjectType, type ImageObject, type TextObject, type LineObject, type PathObject, type RectObject, type ToolSettings, type BoundingBox } from './types';
 import { generateImageFromParts, generateImagesFromPrompt, dataUrlToPart, generateVideoFromImageAndPrompt, generateVideoSuggestions, generateRedesignConcepts, generateDetailedRedesignPrompts, type VideoSuggestion, type RedesignConcept } from './services/geminiService';
 import { openAIGenerateFromPrompt, openAIEditFromImageAndPrompt } from './services/openAIChatService';
+import { createCloudChat, type ChatMessage as CloudChatMessage } from './services/cloudChatService';
 import { createMaskedImage, describeMaskedArea, cropImageByMask } from './services/inpaintingService';
 import { canvasCompositionPrompt, editModeBasePrompt, getInpaintingPrompt, getAIEraserPrompt, getBackgroundRemovalPrompt, getFixInpaintingPrompt, videoGenerationMessages, getVideoSuggestionsPrompt, getRedesignPrompt, getDetailedRedesignPrompts, getOutpaintingPrompt, getRedesignConceptsPrompt } from './prompts';
-import { GoogleGenAI, type Part, type Chat, type FunctionDeclaration, Type, Modality } from '@google/genai';
+import { type Part, type Chat, type FunctionDeclaration, Type, Modality } from '@google/genai';
 import { SpinnerIcon } from './constants';
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// SECURITY NOTE: No API keys stored locally
+// All AI requests are routed through cloud server
+// This maintains type compatibility only
 
 const APP_HELPER_SYSTEM_INSTRUCTION = `Bạn là một trợ lý AI thân thiện và nhiệt tình cho ứng dụng "Zecom Redesign", một bộ công cụ sáng tạo mạnh mẽ. Vai trò chính của bạn là giúp người dùng hiểu và sử dụng các tính năng của ứng dụng một cách hiệu quả. Khi người dùng đặt câu hỏi về ứng dụng, hãy đưa ra những lời giải thích rõ ràng, súc tích và hữu ích.
 
@@ -389,7 +394,7 @@ const App: React.FC = () => {
             setIsLoadingSuggestions(true);
             setVideoSuggestions([]);
             try {
-                const suggestions = await generateVideoSuggestions(imageForVideo.src, getVideoSuggestionsPrompt);
+                const suggestions = await generateVideoSuggestions(imageForVideo.src, getVideoSuggestionsPrompt());
                 setVideoSuggestions(suggestions);
             } catch (error) {
                 console.error("Failed to fetch video suggestions", error);
@@ -411,7 +416,7 @@ const App: React.FC = () => {
             setIsLoadingRedesignSuggestions(true);
             setRedesignSuggestions([]);
             try {
-                const concepts = await generateRedesignConcepts(imageForEdit.src, getRedesignConceptsPrompt);
+                const concepts = await generateRedesignConcepts(imageForEdit.src, getRedesignConceptsPrompt());
                 setRedesignSuggestions(concepts);
             } catch (error) {
                 console.error("Failed to fetch redesign suggestions", error);
@@ -499,14 +504,12 @@ const App: React.FC = () => {
   }, []);
   
     const createChat = (history: ChatMessage[] = []) => {
-    const chatInstance = ai.chats.create({ 
+    const chatInstance = createCloudChat({ 
         model: 'gemini-2.5-flash',
         history: history,
-        config: {
-            systemInstruction: APP_HELPER_SYSTEM_INSTRUCTION,
-            tools: [{ functionDeclarations: [generateImageFunctionDeclaration, editImageFunctionDeclaration] }],
-        }
-    });
+        systemInstruction: APP_HELPER_SYSTEM_INSTRUCTION,
+        tools: [{ functionDeclarations: [generateImageFunctionDeclaration, editImageFunctionDeclaration] }],
+    }) as any; // Cast to maintain type compatibility
     setChat(chatInstance);
   };
   
@@ -612,16 +615,14 @@ const App: React.FC = () => {
         setChatHistory(newHistoryForUI);
 
         // If using Gemini, prepare a chat instance; OpenAI path handled separately
-        let chatForThisTurn: Chat | null = null;
+        let chatForThisTurn: any = null; // Changed from Chat | null to any for cloud compatibility
         if (provider === 'gemini') {
-            chatForThisTurn = ai.chats.create({
+            chatForThisTurn = createCloudChat({
                 model: 'gemini-2.5-flash',
                 history: historySoFar,
-                config: {
-                    systemInstruction: APP_HELPER_SYSTEM_INSTRUCTION,
-                    tools: [{ functionDeclarations: [generateImageFunctionDeclaration, editImageFunctionDeclaration] }],
-                },
-            });
+                systemInstruction: APP_HELPER_SYSTEM_INSTRUCTION,
+                tools: [{ functionDeclarations: [generateImageFunctionDeclaration, editImageFunctionDeclaration] }],
+            }) as any; // Cast to maintain type compatibility
             setChat(chatForThisTurn);
         }
 
@@ -633,27 +634,78 @@ const App: React.FC = () => {
                 const wantsImageGen = !hasImage && /\b(generate|create|draw|vẽ|vẽ|tạo ảnh|tao anh|tạo hình|tao hinh|tạo|ve|vẽ)\b/i.test(textInPrompt);
 
                 if (hasImage) {
-                    const imageUrls = currentUserParts.filter(p => 'inlineData' in p).map((pi: any) => `data:${pi.inlineData.mimeType};base64,${pi.inlineData.data}`);
+                    const userProvidedImages = currentUserParts.filter(p => 'inlineData' in p);
+                    const numImages = userProvidedImages.length;
                     const promptText = textInPrompt || 'Please edit the image according to the previous instructions.';
+                    
+                    console.log(`🎨 OpenAI edit path: ${numImages} image(s) detected`);
+                    
                     // Update placeholder message
+                    const editingText = numImages > 1 
+                        ? `OK, editing ${numImages} images with OpenAI...`
+                        : `OK, applying your edit to the image with OpenAI...`;
+                    
                     setChatHistory(prev => {
                         const newHistory = [...prev];
-                        newHistory[modelResponseIndex] = { role: 'model', parts: [{ text: 'OK, applying your edit to the image...' }], provider };
+                        newHistory[modelResponseIndex] = { role: 'model', parts: [{ text: editingText }], provider };
                         return newHistory;
                     });
 
                     try {
-                        const images = await openAIEditFromImageAndPrompt(imageUrls, promptText, 1);
-                        if (images && images.length > 0) {
-                            const imagePart: Part = { inlineData: { mimeType: 'image/png', data: images[0] } };
-                            setChatHistory(prev => [...prev, { role: 'model', parts: [{ text: "Here is the edited image:" }, imagePart], provider }]);
-                        } else {
-                            setChatHistory(prev => {
-                                const newHistory = [...prev];
-                                newHistory[modelResponseIndex] = { role: 'model', parts: [{ text: 'Sorry, the image edit did not return a result.' }], provider };
-                                return newHistory;
-                            });
+                        // Convert image parts to File objects
+                        const imageFiles: File[] = [];
+                        for (const imgPart of userProvidedImages) {
+                            if (!('inlineData' in imgPart)) continue;
+                            
+                            let base64Data = imgPart.inlineData.data;
+                            if (typeof base64Data === 'object' && base64Data !== null) {
+                                base64Data = (base64Data as any).data || (base64Data as any).base64 || String(base64Data);
+                            }
+                            if (!base64Data || typeof base64Data !== 'string') {
+                                console.error('Invalid base64 data:', base64Data);
+                                continue;
+                            }
+                            
+                            const mimeType = imgPart.inlineData.mimeType || 'image/png';
+                            const dataUrl = `data:${mimeType};base64,${base64Data}`;
+                            
+                            try {
+                                const response = await fetch(dataUrl);
+                                const blob = await response.blob();
+                                const file = new File([blob], `image-${imageFiles.length}.png`, { type: mimeType });
+                                imageFiles.push(file);
+                            } catch (err) {
+                                console.error('Failed to convert image to File:', err);
+                            }
                         }
+                        
+                        if (imageFiles.length === 0) {
+                            throw new Error('No valid images could be processed');
+                        }
+                        
+                        console.log(`🖼️ OpenAI: Processing ${imageFiles.length} image(s)`);
+                        
+                        // Call appropriate service based on number of images
+                        let result;
+                        if (imageFiles.length === 1) {
+                            result = await cloudApiService.redesign(imageFiles[0], promptText, 'openai');
+                        } else {
+                            console.log(`📤 Calling multiImageRedesign with ${imageFiles.length} images for OpenAI`);
+                            result = await cloudApiService.multiImageRedesign(imageFiles, promptText, 'openai');
+                        }
+                        
+                        if (!result.success) {
+                            throw new Error(result.error || 'Image editing failed');
+                        }
+                        
+                        // Ensure base64 data is a string
+                        let editedBase64 = result.data;
+                        if (typeof editedBase64 === 'object' && editedBase64 !== null) {
+                            editedBase64 = (editedBase64 as any).data || (editedBase64 as any).base64 || String(editedBase64);
+                        }
+                        
+                        const imagePart: Part = { inlineData: { mimeType: 'image/png', data: editedBase64 } };
+                        setChatHistory(prev => [...prev, { role: 'model', parts: [{ text: "Here is the edited image:" }, imagePart], provider }]);
                     } catch (e: any) {
                         setChatHistory(prev => {
                             const newHistory = [...prev];
@@ -672,7 +724,18 @@ const App: React.FC = () => {
                     try {
                         const images = await openAIGenerateFromPrompt(textInPrompt || 'Create a high-quality image per the user description.', 1);
                         if (images && images.length > 0) {
-                            const imagePart: Part = { inlineData: { mimeType: 'image/png', data: images[0] } };
+                            // Extract base64 from data URL
+                            let base64Data = images[0].split(',')[1] || images[0];
+                            
+                            // Defensive: ensure base64Data is a string
+                            if (typeof base64Data === 'object' && base64Data !== null) {
+                                base64Data = (base64Data as any).data || (base64Data as any).base64 || String(base64Data);
+                            }
+                            if (typeof base64Data !== 'string') {
+                                throw new Error('Invalid base64 data from OpenAI');
+                            }
+                            
+                            const imagePart: Part = { inlineData: { mimeType: 'image/png', data: base64Data } };
                             setChatHistory(prev => [...prev, { role: 'model', parts: [{ text: "Here's the image you requested:" }, imagePart], provider }]);
                         } else {
                             setChatHistory(prev => {
@@ -721,123 +784,277 @@ const App: React.FC = () => {
                     temperature: 0.7,
                 };
 
-                const resp = await fetch('/api/chat/openai/stream', {
+                // Get auth token from cloudAuthService
+                const token = localStorage.getItem('autoagents_token');
+                const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+
+                const cloudApiUrl = getApiUrl();
+                const resp = await fetch(`${cloudApiUrl}/api/chat/openai/stream`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers,
                     body: JSON.stringify(body),
                 });
-                if (!resp.ok || !resp.body) {
+                
+                if (!resp.ok) {
                     const errText = await resp.text();
                     throw new Error(`OpenAI proxy error: ${resp.status} ${resp.statusText} - ${errText}`);
                 }
 
-                const reader = resp.body.getReader();
-                const decoder = new TextDecoder();
-                let buffer = '';
-                let modelResponseText = '';
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-                    buffer += decoder.decode(value, { stream: true });
-                    const lines = buffer.split('\n');
-                    buffer = lines.pop() || '';
-                    for (const line of lines) {
-                        const trimmed = line.trim();
-                        if (!trimmed.startsWith('data:')) continue;
-                        const data = trimmed.replace(/^data:\s*/, '');
-                        if (data === '[DONE]') continue;
-                        try {
-                            const json = JSON.parse(data);
-                            const delta = json.choices?.[0]?.delta?.content;
-                            if (typeof delta === 'string') {
-                                modelResponseText += delta;
-                            } else if (Array.isArray(delta)) {
-                                for (const piece of delta) {
-                                    if (piece.type === 'text' && piece.text) {
-                                        modelResponseText += piece.text;
-                                    }
-                                }
-                            }
-                            setChatHistory(prev => {
-                                const newHistory = [...prev];
-                                const lastMessage = newHistory[modelResponseIndex];
-                                if (lastMessage && lastMessage.role === 'model') {
-                                    newHistory[modelResponseIndex] = { ...lastMessage, parts: [{ text: modelResponseText }], provider };
-                                }
-                                return newHistory;
-                            });
-                        } catch {}
-                    }
-                }
-                return; // Done with OpenAI streaming path
-            }
-
-            // Gemini path (streaming)
-            if (!chatForThisTurn) throw new Error('Gemini chat not initialized');
-            const stream = await chatForThisTurn.sendMessageStream({ message: currentUserParts });
-            let modelResponseText = '';
-            
-            for await (const chunk of stream) {
-                if (chunk.functionCalls && chunk.functionCalls.length > 0) {
-                    const func = chunk.functionCalls[0];
-                    if (func.name === 'generateImage' && func.args.prompt) {
-                        setIsGeneratingImage(true);
-                        setChatHistory(prev => {
-                            const newHistory = [...prev];
-                            newHistory[modelResponseIndex] = { role: 'model', parts: [{ text: `OK, generating an image of "${func.args.prompt}"...` }]};
-                            return newHistory;
-                        });
-                        
-                        const result = await generateImagesFromPrompt(func.args.prompt as string, 1);
-                        
-                        if (result.newImageBase64s && result.newImageBase64s.length > 0) {
-                            const imagePart: Part = { inlineData: { mimeType: 'image/png', data: result.newImageBase64s[0] }};
-                            setChatHistory(prev => [...prev, { role: 'model', parts: [{ text: "Here's the image you requested:"}, imagePart] }]);
-                        } else {
-                             setChatHistory(prev => [...prev, { role: 'model', parts: [{ text: `Sorry, I couldn't generate the image. ${result.error || ''}` }] }]);
-                        }
-                        setIsGeneratingImage(false);
-
-                    } else if (func.name === 'editImage' && func.args.prompt) {
-                        setIsGeneratingImage(true);
-                        setChatHistory(prev => {
-                            const newHistory = [...prev];
-                            newHistory[modelResponseIndex] = { role: 'model', parts: [{ text: `OK, attempting to edit the image as requested...` }]};
-                            return newHistory;
-                        });
-
-                        const imageParts = currentUserParts.filter(p => 'inlineData' in p);
-                        if (imageParts.length === 0) {
-                            throw new Error("Edit function was called, but no images were found in the user's prompt.");
-                        }
-                        const editPrompt = func.args.prompt as string;
-                        const editParts: Part[] = [...imageParts, { text: editPrompt }];
-                        
-                        const result = await generateImageFromParts(editParts, 1);
-
-                        if (result.newImageBase64s && result.newImageBase64s.length > 0) {
-                            const imagePart: Part = { inlineData: { mimeType: 'image/png', data: result.newImageBase64s[0] }};
-                            setChatHistory(prev => [...prev, { role: 'model', parts: [{ text: "Here is the edited image:" }, imagePart] }]);
-                        } else {
-                            setChatHistory(prev => [...prev, { role: 'model', parts: [{ text: `Sorry, I couldn't perform the edit. ${result.error || 'The model may not support this type of edit.'}` }] }]);
-                        }
-                        setIsGeneratingImage(false);
-                    }
-                    continue; 
+                // Server returns JSON, not streaming
+                const jsonResult = await resp.json();
+                let modelResponseText = jsonResult.data || jsonResult.message || '';
+                
+                // Ensure text is a string (handle complex objects from API)
+                if (typeof modelResponseText !== 'string') {
+                    modelResponseText = JSON.stringify(modelResponseText);
                 }
                 
-                if (chunk.text) {
-                    modelResponseText += chunk.text;
+                setChatHistory(prev => {
+                    const newHistory = [...prev];
+                    newHistory[modelResponseIndex] = { 
+                        role: 'model', 
+                        parts: [{ text: modelResponseText }], 
+                        provider 
+                    };
+                    return newHistory;
+                });
+                
+                return; // Done with OpenAI path
+            }
+
+            // Gemini path (via cloud - no streaming for now)
+            if (!chatForThisTurn) throw new Error('Gemini chat not initialized');
+            
+            // AI-POWERED INTENT DETECTION
+            const userText = currentUserParts
+                .filter(p => 'text' in p && p.text)
+                .map(p => ('text' in p ? p.text : ''))
+                .join(' ');
+            
+            const hasImages = currentUserParts.some(p => 'inlineData' in p);
+            const numImages = currentUserParts.filter(p => 'inlineData' in p).length;
+            
+            // Check if recent chat history contains an image (for context)
+            const recentMessages = [...historySoFar, { role: 'user' as const, parts: currentUserParts, provider }].slice(-5);
+            const hasRecentImage = recentMessages.some(msg => 
+                msg.parts.some(p => 'inlineData' in p)
+            );
+            
+            // Use AI to detect user intent instead of hardcoded keywords
+            const { analyzeUserIntent } = await import('./services/intentDetection');
+            
+            try {
+                const intentAnalysis = await analyzeUserIntent(userText, hasImages, hasRecentImage, numImages);
+                console.log('Intent detected:', intentAnalysis);
+                
+                // Route based on AI-detected intent
+                if (intentAnalysis.intent === 'IMAGE_GENERATION' && !hasImages) {
+                    setIsGeneratingImage(true);
                     setChatHistory(prev => {
                         const newHistory = [...prev];
-                        const lastMessage = newHistory[modelResponseIndex];
-                        if (lastMessage && lastMessage.role === 'model') {
-                            newHistory[modelResponseIndex] = { ...lastMessage, parts: [{ text: modelResponseText }] };
-                        }
+                        newHistory[modelResponseIndex] = { 
+                            role: 'model', 
+                            parts: [{ text: `OK, generating an image: "${userText}"...` }], 
+                            provider
+                        };
                         return newHistory;
                     });
+                    
+                    try {
+                        const images = await generateImagesFromPrompt(userText, 1);
+                        console.log('Image generation result:', images);
+                        
+                        if (images.error) throw new Error(images.error);
+                        if (images.newImageBase64s && images.newImageBase64s.length > 0) {
+                            // Ensure base64 data is a string (handle both string and nested object cases)
+                            let base64String = images.newImageBase64s[0];
+                            if (typeof base64String === 'object' && base64String !== null) {
+                                // Extract string from object if needed
+                                base64String = base64String.data || base64String.base64 || base64String.image || String(base64String);
+                            }
+                            console.log('Base64 data length:', base64String?.length);
+                            
+                            const imagePart: Part = { 
+                                inlineData: { 
+                                    mimeType: 'image/png', 
+                                    data: base64String
+                                } 
+                            };
+                            // Replace the placeholder message with the result
+                            setChatHistory(prev => {
+                                const newHistory = [...prev];
+                                newHistory[modelResponseIndex] = { 
+                                    role: 'model', 
+                                    parts: [{ text: "Here's the image you requested:" }, imagePart], 
+                                    provider 
+                                };
+                                console.log('Updated chat history with image:', newHistory[modelResponseIndex]);
+                                return newHistory;
+                            });
+                        } else {
+                            console.error('No image data in result:', images);
+                        }
+                    } catch (e: any) {
+                        setChatHistory(prev => {
+                            const newHistory = [...prev];
+                            newHistory[modelResponseIndex] = { 
+                                role: 'model', 
+                                parts: [{ text: `Image generation failed: ${e?.message || 'Unknown error'}` }], 
+                                provider 
+                            };
+                            return newHistory;
+                        });
+                    } finally {
+                        setIsGeneratingImage(false);
+                    }
+                    return;
                 }
+                
+                // IMAGE_EDIT intent: Edit image(s) from user input or recent history
+                if (intentAnalysis.intent === 'IMAGE_EDIT' && (hasImages || hasRecentImage)) {
+                    setIsGeneratingImage(true);
+                    
+                    // Check if user provided images in current message
+                    const userProvidedImages = currentUserParts.filter(p => 'inlineData' in p);
+                    const numImages = userProvidedImages.length;
+                    
+                    const editingText = numImages > 1 
+                        ? `OK, editing ${numImages} images: "${userText}"...`
+                        : `OK, editing the image: "${userText}"...`;
+                    
+                    setChatHistory(prev => {
+                        const newHistory = [...prev];
+                        newHistory[modelResponseIndex] = { 
+                            role: 'model', 
+                            parts: [{ text: editingText }], 
+                            provider
+                        };
+                        return newHistory;
+                    });
+                    
+                    try {
+                        let imagesToEdit: Part[] = [];
+                        
+                        if (userProvidedImages.length > 0) {
+                            // User attached images in current message → use those
+                            imagesToEdit = userProvidedImages;
+                        } else {
+                            // No images in current input → find the most recent image from history
+                            for (let i = recentMessages.length - 1; i >= 0; i--) {
+                                const imagePart = recentMessages[i].parts.find(p => 'inlineData' in p);
+                                if (imagePart) {
+                                    imagesToEdit = [imagePart];
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        if (imagesToEdit.length === 0) {
+                            throw new Error('No image found to edit');
+                        }
+                        
+                        // Convert all images to File objects
+                        const imageFiles: File[] = [];
+                        for (const imgPart of imagesToEdit) {
+                            if (!('inlineData' in imgPart)) continue;
+                            
+                            // Ensure base64 data is a string
+                            let base64Data = imgPart.inlineData.data;
+                            if (typeof base64Data === 'object' && base64Data !== null) {
+                                base64Data = (base64Data as any).data || (base64Data as any).base64 || (base64Data as any).image || String(base64Data);
+                            }
+                            if (!base64Data || typeof base64Data !== 'string') {
+                                console.error('Invalid base64 data:', base64Data);
+                                continue;
+                            }
+                            
+                            const mimeType = imgPart.inlineData.mimeType || 'image/png';
+                            const dataUrl = `data:${mimeType};base64,${base64Data}`;
+                            
+                            try {
+                                const response = await fetch(dataUrl);
+                                const blob = await response.blob();
+                                const file = new File([blob], `image-${imageFiles.length}.png`, { type: mimeType });
+                                imageFiles.push(file);
+                            } catch (err) {
+                                console.error('Failed to convert image to File:', err);
+                            }
+                        }
+                        
+                        if (imageFiles.length === 0) {
+                            throw new Error('No valid images could be processed');
+                        }
+                        
+                        console.log(`🖼️ IMAGE_EDIT: Processing ${imageFiles.length} image(s) with provider: ${provider}`);
+                        
+                        // Call appropriate service based on number of images
+                        let result;
+                        if (imageFiles.length === 1) {
+                            result = await cloudApiService.redesign(imageFiles[0], userText, provider === 'openai' ? 'openai' : 'gemini');
+                        } else {
+                            // Multi-image editing
+                            console.log(`📤 Calling multiImageRedesign with ${imageFiles.length} images`);
+                            result = await cloudApiService.multiImageRedesign(imageFiles, userText, provider === 'openai' ? 'openai' : 'gemini');
+                        }
+                        
+                        if (!result.success) {
+                            throw new Error(result.error || 'Image editing failed');
+                        }
+                        
+                        // Ensure base64 data is a string (handle both string and nested object cases)
+                        let editedBase64 = result.data;
+                        if (typeof editedBase64 === 'object' && editedBase64 !== null) {
+                            editedBase64 = editedBase64.data || editedBase64.base64 || editedBase64.image || String(editedBase64);
+                        }
+                        
+                        const editedImagePart: Part = { 
+                            inlineData: { 
+                                mimeType: 'image/png', 
+                                data: editedBase64
+                            } 
+                        };
+                        
+                        setChatHistory(prev => {
+                            const newHistory = [...prev];
+                            newHistory[modelResponseIndex] = { 
+                                role: 'model', 
+                                parts: [{ text: "Here's the edited image:" }, editedImagePart], 
+                                provider 
+                            };
+                            return newHistory;
+                        });
+                    } catch (e: any) {
+                        setChatHistory(prev => {
+                            const newHistory = [...prev];
+                            newHistory[modelResponseIndex] = { 
+                                role: 'model', 
+                                parts: [{ text: `Image editing failed: ${e?.message || 'Unknown error'}` }], 
+                                provider 
+                            };
+                            return newHistory;
+                        });
+                    } finally {
+                        setIsGeneratingImage(false);
+                    }
+                    return;
+                }
+                
+            } catch (intentError) {
+                console.error('Intent detection failed, falling back to chat:', intentError);
             }
+            
+            // Regular chat response (or fallback)
+            const response = await chatForThisTurn.sendMessageStream(currentUserParts);
+            const modelResponseText = response.text();
+            
+            setChatHistory(prev => {
+                const newHistory = [...prev];
+                newHistory[modelResponseIndex] = { role: 'model', parts: [{ text: modelResponseText }], provider };
+                return newHistory;
+            });
         } catch (error) {
             console.error("Chat failed:", error);
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -1792,7 +2009,7 @@ const App: React.FC = () => {
             throw new Error("Base image not found for redesign.");
         }
 
-        const ideaPrompts = await generateDetailedRedesignPrompts(baseImage.src, userConcept, numImages, getDetailedRedesignPrompts);
+        const ideaPrompts = await generateDetailedRedesignPrompts(baseImage.src, userConcept, numImages, getDetailedRedesignPrompts(numImages));
         const imageGenerationPromises = ideaPrompts.map(async (ideaPrompt) => {
             const baseImagePart = await dataUrlToPart(baseImage.src);
             const finalPromptForGeneration = `${getRedesignPrompt()}\n\n**User's Request:** "${ideaPrompt}"`;

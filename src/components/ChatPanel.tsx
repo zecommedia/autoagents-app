@@ -175,10 +175,30 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ history, onSendMessage, isGenerat
                 ) : (
                     <div className="space-y-6">
                         {history.map((msg, index) => {
-                             const imageParts = msg.parts.filter(p => 'inlineData' in p);
-                             const textPart = msg.parts.find(p => 'text' in p);
+                             // Safety check: ensure parts is an array
+                             if (!msg.parts || !Array.isArray(msg.parts)) {
+                                 console.error('Invalid message parts:', msg);
+                                 return null;
+                             }
+                             
+                             const imageParts = msg.parts.filter(p => p && typeof p === 'object' && 'inlineData' in p);
+                             const textPart = msg.parts.find(p => p && typeof p === 'object' && 'text' in p);
                              const hasImages = imageParts.length > 0;
-                             const hasText = textPart && 'text' in textPart && textPart.text && textPart.text.trim() !== '';
+                             
+                             // Handle text content safely
+                             let textContent = '';
+                             if (textPart && 'text' in textPart) {
+                                 const textValue = textPart.text;
+                                 if (typeof textValue === 'string') {
+                                     textContent = textValue;
+                                 } else if (textValue && typeof textValue === 'object') {
+                                     textContent = JSON.stringify(textValue);
+                                 } else if (textValue) {
+                                     textContent = String(textValue);
+                                 }
+                             }
+                             const hasText = textContent && textContent.trim() !== '';
+                             
                              return (
                                 <div key={index} className={`flex group relative ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                                     <div className={`flex items-start space-x-3 max-w-2xl`}>
@@ -194,8 +214,19 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ history, onSendMessage, isGenerat
                                             {hasImages && (
                                                 <div className={`grid grid-cols-2 gap-2 ${hasText ? 'mb-3' : ''}`}>
                                                     {imageParts.map((part, partIndex) => {
-                                                        const { mimeType, data } = (part as any).inlineData;
-                                                        const src = `data:${mimeType};base64,${data}`;
+                                                        const { mimeType } = (part as any).inlineData || {};
+                                                        let data = (part as any).inlineData?.data as any;
+                                                        // Defensive: some paths accidentally store an object or a full data URL
+                                                        if (data && typeof data === 'object') {
+                                                            data = data.data || data.base64 || data.image || '';
+                                                        }
+                                                        if (typeof data === 'string' && data.startsWith('data:')) {
+                                                            // If a full data URL slipped in, extract pure base64 after the comma
+                                                            const maybeBase64 = data.split(',')[1];
+                                                            if (maybeBase64) data = maybeBase64;
+                                                        }
+                                                        const safeMime = typeof mimeType === 'string' && mimeType ? mimeType : 'image/png';
+                                                        const src = `data:${safeMime};base64,${typeof data === 'string' ? data : ''}`;
                                                         return (
                                                             <div key={partIndex} className="aspect-square bg-zinc-900 rounded-lg overflow-hidden">
                                                                 <img 
@@ -217,7 +248,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ history, onSendMessage, isGenerat
                                                 </div>
                                             )}
                                             {hasText && (
-                                                <pre className="text-sm whitespace-pre-wrap font-sans text-white">{textPart.text}</pre>
+                                                <pre className="text-sm whitespace-pre-wrap font-sans text-white">{textContent}</pre>
                                             )}
                                             {msg.role === 'model' && !hasText && !hasImages && (
                                                 <SpinnerIcon className="w-5 h-5 animate-spin text-zinc-400" />

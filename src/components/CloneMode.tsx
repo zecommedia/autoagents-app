@@ -4,7 +4,7 @@ import { UploadCloud, Wand2, ArrowRight, Scaling } from 'lucide-react';
 import ZoomableImage from './ZoomableImage';
 import { generateImageFromParts, dataUrlToPart } from '../services/geminiService';
 import { generateImageOpenAI } from '../services/openAIService.ts';
-import { upscaleImage } from '../services/replicateService';
+import { cloudApiService } from '../../lib/services/cloudApiService';
 import { processCutout, makeCacheKey, createFinalJob, getJob } from '../services/imageProcessing';
 import { getCloneDesignPrompt } from '../prompts';
 import { getCursorStyle } from '../config/cursors';
@@ -124,6 +124,30 @@ const resizeImage = (imageUrl: string, targetW: number, targetH: number): Promis
         };
         img.src = imageUrl;
     });
+};
+
+// Helper: Upscale image via cloudApiService
+const upscaleImageViaCloud = async (dataUrl: string, scale: number = 2): Promise<string> => {
+    try {
+        // Convert dataUrl to File
+        const response = await fetch(dataUrl);
+        const blob = await response.blob();
+        const file = new File([blob], 'image.png', { type: 'image/png' });
+
+        // Call cloudApiService.upscale()
+        const result = await cloudApiService.upscale(file, scale);
+        
+        if (!result.success || !result.data) {
+            throw new Error(result.error || 'Upscale failed');
+        }
+
+        // Return as data URL
+        const base64Data = typeof result.data === 'string' ? result.data : result.data.image || result.data.data;
+        return base64Data.startsWith('data:') ? base64Data : `data:image/png;base64,${base64Data}`;
+    } catch (error) {
+        console.error('Upscale via cloud failed:', error);
+        throw error;
+    }
 };
 
 type Step = 'upload' | 'cloning' | 'detecting' | 'upscaling' | 'resizing' | 'done';
@@ -2075,7 +2099,8 @@ const CloneMode: React.FC<CloneModeProps> = ({ initialState, onStateChange }) =>
                     const croppedImageUrl = await detectAndCropPattern(clonedImageUrl);
                     
                     setStep('upscaling');
-                    const upscaledImageUrl = await upscaleImage(croppedImageUrl, selectedUpscaleModel);
+                    // Use cloudApiService.upscale() instead of replicateService
+                    const upscaledImageUrl = await upscaleImageViaCloud(croppedImageUrl, 2);
                     setUpscaledImage(upscaledImageUrl);
                     setStep('resizing');
 

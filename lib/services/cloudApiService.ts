@@ -150,6 +150,49 @@ class CloudApiService {
     });
   }
 
+  // Multi-Image Redesign (for 2+ images)
+  async multiImageRedesign(images: File[], prompt: string, model?: string, onProgress?: (progress: number) => void) {
+    console.log(`🎯 multiImageRedesign called with ${images.length} images, model: ${model}`);
+    
+    const data: any = { prompt, model: model || 'gemini' };
+    
+    // Add images with proper naming for backend
+    if (images.length === 1) {
+      console.log('📎 Sending as single image (field: image)');
+      data.image = images[0];
+    } else if (images.length === 2) {
+      console.log('📎 Sending as dual images (fields: image1, image2)');
+      data.image1 = images[0];
+      data.image2 = images[1];
+    } else if (images.length >= 3) {
+      // For 3+ images, still use image1, image2 for now (backend limitation)
+      // TODO: Backend should support unlimited images via array
+      console.log(`📎 Sending first 2 of ${images.length} images (fields: image1, image2)`);
+      data.image1 = images[0];
+      data.image2 = images[1];
+      console.warn(`Only using first 2 images out of ${images.length}. Backend doesn't support 3+ images yet.`);
+    }
+    
+    console.log('📤 Request data keys:', Object.keys(data));
+    
+    return this.request({
+      endpoint: '/proxy/redesign',
+      data,
+      timeout: 180000,
+      onProgress,
+    });
+  }
+
+  // Text-to-Image Generation (Imagen 4)
+  async textToImage(prompt: string, onProgress?: (progress: number) => void) {
+    return this.request({
+      endpoint: '/proxy/redesign',
+      data: { prompt, model: 'imagen' }, // No image, just prompt - triggers Imagen 4
+      timeout: 180000,
+      onProgress,
+    });
+  }
+
   // Text Chat (Gemini 2.5 Pro or GPT-5)
   async chat(messages: any[], model?: string) {
     return this.request({
@@ -179,13 +222,63 @@ class CloudApiService {
     });
   }
 
-  // Video Generation (Veo 3)
-  async generateVideo(image: File, prompt: string, onProgress?: (progress: number) => void) {
+  // Video Generation (Veo 2.0) - Returns Blob URL
+  async generateVideo(image: File, prompt: string, aspectRatio?: string, onProgress?: (progress: number) => void) {
+    try {
+      const apiClient = cloudAuthService.getApiClient();
+      
+      const formData = new FormData();
+      formData.append('image', image, 'image.png');
+      formData.append('prompt', prompt);
+      formData.append('aspectRatio', aspectRatio || 'auto');
+
+      const response = await apiClient.post('/proxy/video', formData, {
+        timeout: 300000, // 5 minutes
+        responseType: 'blob', // ✅ CRITICAL: Receive binary data
+        headers: {
+          'Content-Type': undefined as any,
+        },
+        onUploadProgress: (progressEvent: any) => {
+          if (onProgress && progressEvent.total) {
+            const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+            onProgress(progress);
+          }
+        },
+      });
+
+      // Create Blob URL from binary response
+      const videoBlob = new Blob([response.data], { type: 'video/mp4' });
+      const videoUrl = URL.createObjectURL(videoBlob);
+
+      return {
+        success: true,
+        data: videoUrl, // Return Blob URL for video player
+      };
+
+    } catch (error: any) {
+      console.error('Video generation failed:', error);
+      return {
+        success: false,
+        error: error.response?.data?.error || error.message || 'Video generation failed',
+      };
+    }
+  }
+
+  // Video Suggestions (Gemini 2.5 Flash with Image)
+  async videoSuggestions(image: File, prompt: string) {
     return this.request({
-      endpoint: '/proxy/video',
+      endpoint: '/proxy/video-suggestions',
       data: { image, prompt },
-      timeout: 300000, // 5 minutes
-      onProgress,
+      timeout: 120000, // 2 minutes (Gemini structured output can be slow)
+    });
+  }
+
+  // Redesign Suggestions (Gemini 2.5 Flash Image with structured output)
+  async redesignSuggestions(image: File, prompt: string) {
+    return this.request({
+      endpoint: '/proxy/redesign-suggestions',
+      data: { image, prompt },
+      timeout: 120000, // 2 minutes (Gemini structured output can be slow)
     });
   }
 
