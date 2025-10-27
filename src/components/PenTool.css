@@ -1,0 +1,170 @@
+/* Adobe Illustrator Pen Tool Cursor Styles */
+
+/* Main Pen Tool Cursor - matches Adobe Illustrator exactly */
+.pentool-cursor {
+  cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><g transform="translate(8, 2)"><path d="M 8 0 L 6 4 L 10 4 Z" fill="white" stroke="black" stroke-width="0.75"/><path d="M 8 4 L 8 20" stroke="white" stroke-width="1.5"/><path d="M 8 4 L 8 20" stroke="black" stroke-width="0.75"/><circle cx="8" cy="20" r="2.5" fill="white" stroke="black" stroke-width="0.75"/><circle cx="8" cy="20" r="1.2" fill="black"/></g></svg>') 8 2, crosshair;
+}
+
+/* Pen Tool Cursor when hovering near first point (ready to close path) */
+.pentool-cursor-close {
+  cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><g transform="translate(8, 2)"><path d="M 8 0 L 6 4 L 10 4 Z" fill="white" stroke="black" stroke-width="0.75"/><path d="M 8 4 L 8 20" stroke="white" stroke-width="1.5"/><path d="M 8 4 L 8 20" stroke="black" stroke-width="0.75"/><circle cx="8" cy="20" r="2.5" fill="white" stroke="black" stroke-width="0.75"/><circle cx="8" cy="20" r="1.2" fill="black"/><circle cx="14" cy="20" r="4" fill="none" stroke="black" stroke-width="1" opacity="0.8"/></g></svg>') 8 2, crosshair;
+}
+
+/* Anchor Point Styles - Adobe Illustrator style */
+.anchor-point {
+  pointer-events: none;
+  position: absolute;
+}
+
+.anchor-point-fill {
+  fill: white;
+  stroke: #2196F3;
+  stroke-width: 1.5;
+}
+
+.anchor-point-selected {
+  fill: #2196F3;
+  stroke: white;
+  stroke-width: 1.5;
+}
+
+.anchor-point-hover {
+  fill: white;
+  stroke: #FF9800;
+  stroke-width: 2;
+}
+
+/* Path Stroke - Adobe Illustrator style */
+.path-stroke {
+  fill: none;
+  stroke: #2196F3;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.path-fill {
+  fill: rgba(33, 150, 243, 0.15);
+  stroke: none;
+}
+
+/* Closing path preview line */
+.path-close-preview {
+  stroke: #2196F3;
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+  opacity: 0.6;
+  fill: none;
+}
+
+/* Selection highlight for completed path */
+.path-selected {
+  stroke: #2196F3;
+  stroke-width: 2;
+  fill: rgba(33, 150, 243, 0.25);
+}
+
+/* Hover effect on path */
+.path-hover {
+  stroke: #FF9800;
+  stroke-width: 2;
+  cursor: pointer;
+}
+
+/* Control handles (for Bezier curves if you want to add later) */
+.control-handle {
+  fill: white;
+  stroke: #2196F3;
+  stroke-width: 1;
+  pointer-events: all;
+  cursor: move;
+}
+
+.control-line {
+  stroke: #2196F3;
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+  pointer-events: none;
+}
+
+/* Helper text and tooltips */
+.pentool-tooltip {
+  position: absolute;
+  background: rgba(0, 0, 0, 0.85);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 1000;
+}
+
+/* Vertex counter badge */
+.vertex-badge {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  background: #2196F3;
+  color: white;
+  font-size: 9px;
+  font-weight: bold;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid white;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
+/* Animation for new anchor point */
+@keyframes anchorAppear {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.3);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.anchor-point-new {
+  animation: anchorAppear 0.2s ease-out;
+}
+
+/* Smooth transitions */
+.anchor-point,
+.path-stroke {
+  transition: all 0.15s ease;
+}
+
+/* Grid snap indicator (optional) */
+.snap-guide {
+  stroke: #00BCD4;
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* Measurement display (optional) */
+.measurement-line {
+  stroke: #9E9E9E;
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  opacity: 0.7;
+}
+
+.measurement-text {
+  fill: #333;
+  font-size: 10px;
+  font-family: monospace;
+  text-anchor: middle;
+}

@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { cloudAuthService } from '../lib/services/cloudAuthService';
 
 // --- SVG ICONS ---
 
@@ -75,8 +74,10 @@ interface FormProps {
     onLoginSuccess: () => void;
 }
 
+import { cloudAuthService } from '../lib/services/cloudAuthService';
+
 const LicenseKeyForm: React.FC<FormProps> = ({ onLoginSuccess }) => {
-    const [licenseKey, setLicenseKey] = useState('ADMIN-TEST-KEY-12345678');
+    const [licenseKey, setLicenseKey] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -90,33 +91,11 @@ const LicenseKeyForm: React.FC<FormProps> = ({ onLoginSuccess }) => {
         setError(null);
 
         try {
-            console.log('🔐 Verifying license key:', licenseKey);
-            console.log('🌐 Cloud API URL:', import.meta.env.VITE_CLOUD_API_URL);
-            
             const result = await cloudAuthService.verifyLicense(licenseKey.trim());
-            
-            console.log('✅ Authentication successful:', result);
-            console.log('👤 User:', result.user);
-            console.log('🎫 Token:', result.token ? 'Token received' : 'No token');
-            
-            if (!result.success) {
-                throw new Error('Authentication failed - success flag is false');
-            }
-            
-            if (!result.token) {
-                throw new Error('Authentication failed - no token received');
-            }
-            
-            // Small delay to ensure localStorage is updated
-            await new Promise(resolve => setTimeout(resolve, 100));
-            
-            console.log('🚀 Calling onLoginSuccess()');
+            console.log('Authentication successful:', result.user);
             onLoginSuccess();
         } catch (err) {
-            console.error('❌ Authentication error:', err);
-            const errorMessage = err instanceof Error ? err.message : 'Invalid license key or connection error.';
-            console.error('📝 Error message:', errorMessage);
-            setError(errorMessage);
+            setError(err instanceof Error ? err.message : 'Invalid license key or connection error.');
         } finally {
             setIsLoading(false);
         }
@@ -325,7 +304,6 @@ const LoginForm: React.FC<FormProps & { onSwitchToSignUp: () => void }> = ({ onL
         </>
     );
 };
-*/
 
 // --- MAIN AUTHENTICATION SCREEN COMPONENT ---
 interface LoginProps {

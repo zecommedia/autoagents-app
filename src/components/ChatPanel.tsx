@@ -178,24 +178,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ history, onSendMessage, isGenerat
                              const imageParts = msg.parts.filter(p => 'inlineData' in p);
                              const textPart = msg.parts.find(p => 'text' in p);
                              const hasImages = imageParts.length > 0;
-                             
-                             // Fix v2: Handle both string and object text parts (for cloud API compatibility)
-                             // Cloud API returns string directly, Gemini SDK returns object
-                             let textContent = '';
-                             if (textPart && 'text' in textPart) {
-                                 const textValue = textPart.text;
-                                 if (typeof textValue === 'string') {
-                                     textContent = textValue;
-                                 } else if (textValue && typeof textValue === 'object') {
-                                     // Handle case where text is an object (shouldn't happen but be safe)
-                                     textContent = JSON.stringify(textValue);
-                                 } else if (textValue) {
-                                     // Fallback: convert to string
-                                     textContent = String(textValue);
-                                 }
-                             }
-                             const hasText = textContent && textContent.trim() !== '';
-                             
+                             const hasText = textPart && 'text' in textPart && textPart.text && textPart.text.trim() !== '';
                              return (
                                 <div key={index} className={`flex group relative ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                                     <div className={`flex items-start space-x-3 max-w-2xl`}>
@@ -234,9 +217,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ history, onSendMessage, isGenerat
                                                 </div>
                                             )}
                                             {hasText && (
-                                                <pre className="text-sm whitespace-pre-wrap font-sans text-white">
-                                                    {textContent}
-                                                </pre>
+                                                <pre className="text-sm whitespace-pre-wrap font-sans text-white">{textPart.text}</pre>
                                             )}
                                             {msg.role === 'model' && !hasText && !hasImages && (
                                                 <SpinnerIcon className="w-5 h-5 animate-spin text-zinc-400" />
@@ -346,4 +327,4 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ history, onSendMessage, isGenerat
     );
 };
 
-export default ChatPanel; 
+export default ChatPanel;
