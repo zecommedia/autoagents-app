@@ -54,11 +54,21 @@ export async function generateImageFromParts(parts: any[], numberOfImages = 1): 
   const result = await cloudApiService.redesign(file, prompt, 'gemini');
   
   if (!result.success) {
-    throw new Error(result.error || 'Cloud API redesign failed');
+    return { error: result.error || 'Cloud API redesign failed' };
   }
 
-  // Return in expected format for App.tsx
+  // Extract base64 string (handle nested objects)
+  let base64Data = result.data;
+  if (typeof base64Data === 'object' && base64Data !== null) {
+    base64Data = base64Data.data || base64Data.base64 || base64Data.image || String(base64Data);
+  }
+  if (typeof base64Data !== 'string') {
+    return { error: 'Invalid image data format from server' };
+  }
+
+  // Return in BOTH formats for compatibility with CloneMode and App.tsx
   return {
+    newImageBase64s: [base64Data], // For CloneMode
     response: {
       candidates: [
         {
@@ -66,7 +76,7 @@ export async function generateImageFromParts(parts: any[], numberOfImages = 1): 
             parts: [
               {
                 inlineData: {
-                  data: result.data, // Already base64
+                  data: base64Data, // Ensured to be string
                   mimeType: 'image/png'
                 }
               }
@@ -257,17 +267,61 @@ export async function generateRedesignConcepts(
 }
 
 /**
- * Detailed redesign prompts (mock for now)
+ * Detailed redesign prompts - Expands high-level concept into specific prompts
+ * Routes to cloudApiService.detailedRedesignPrompts()
  */
 export async function generateDetailedRedesignPrompts(
   imageDataUrl: string,
   concept: string,
   numImages: number = 3,
-  promptTemplate?: string
+  promptTemplate?: string | ((n: number) => string)
 ): Promise<string[]> {
-  return [
-    `Redesign with ${concept} theme, high detail`,
-    `Transform using ${concept} style, professional quality`,
-    `Apply ${concept} aesthetic, 4K resolution`
-  ].slice(0, numImages);
+  try {
+    // Convert image to File for cloud API
+    const response = await fetch(imageDataUrl);
+    const blob = await response.blob();
+    const file = new File([blob], 'image.png', { type: blob.type });
+
+    // Get system prompt (call function if it's a function)
+    let systemPrompt: string;
+    if (typeof promptTemplate === 'function') {
+      systemPrompt = promptTemplate(numImages);
+    } else if (typeof promptTemplate === 'string') {
+      systemPrompt = promptTemplate;
+    } else {
+      // Import from prompts.ts
+      const { getDetailedRedesignPrompts } = await import('../prompts');
+      systemPrompt = getDetailedRedesignPrompts(numImages);
+    }
+    
+    // Call cloud API
+    const result = await cloudApiService.detailedRedesignPrompts(
+      file, 
+      concept, 
+      numImages, 
+      systemPrompt
+    );
+    
+    console.log('🎨 Detailed prompts result:', result);
+    
+    if (!result.success || !result.data) {
+      throw new Error(result.error || 'Failed to generate detailed prompts');
+    }
+    
+    // Extract array from nested response
+    const prompts = Array.isArray(result.data) ? result.data : result.data.data;
+    
+    if (!Array.isArray(prompts) || prompts.length === 0) {
+      throw new Error('No prompts returned from API');
+    }
+    
+    return prompts;
+    
+  } catch (error) {
+    console.error('❌ Detailed redesign prompts failed:', error);
+    // Fallback to basic prompts
+    return Array(numImages).fill(null).map((_, i) => 
+      `${concept} - Variation ${i + 1}, high detail, professional quality`
+    );
+  }
 }

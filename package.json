@@ -5,21 +5,21 @@
   "version": "1.0.0",
   "description": "AutoAgents AI Image Editor - Hybrid Local & Cloud Processing",
   "author": "AutoAgents",
-  "main": "electron-build/main.js",
+  "main": "electron/main.js",
   "scripts": {
     "dev": "vite",
     "dev:local-server": "node local-server/server.js",
     "dev:all": "concurrently \"npm run dev\" \"npm run dev:local-server\"",
-    "dev:electron": "tsc -p tsconfig.electron.json && electron .",
+    "dev:electron": "cross-env NODE_ENV=development electron .",
     "build": "vite build",
-    "build:electron": "npm run build && tsc -p tsconfig.electron.json && electron-builder",
+    "build:electron": "npm run build && electron-builder",
     "preview": "vite preview",
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
     "@google/genai": "^1.21.0",
     "@handsontable/react": "^16.1.1",
-    "@imgly/background-removal": "^1.4.5",
+    "@imgly/background-removal": "^1.7.0",
     "@types/multer": "^2.0.0",
     "ag-psd": "^28.4.1",
     "axios": "^1.7.0",
@@ -44,6 +44,7 @@
     "@types/node": "^22.18.12",
     "@vitejs/plugin-react": "^5.0.0",
     "concurrently": "^9.1.0",
+    "cross-env": "^7.0.3",
     "electron": "^33.0.0",
     "electron-builder": "^24.13.3",
     "typescript": "~5.8.2",
@@ -60,12 +61,12 @@
     },
     "files": [
       "dist/**/*",
-      "electron-build/**/*",
+      "electron/**/*",
       "node_modules/**/*",
       "package.json"
     ],
     "extraMetadata": {
-      "main": "electron-build/main.js"
+      "main": "electron/main.js"
     },
     "win": {
       "target": [

@@ -145,12 +145,21 @@ export interface CloneModeState {
   selectedUpscaleModel: string;
 }
 
+export interface MockupModeState {
+  stickerPreview: string | null;
+  processedImages: Array<{ filename: string; path: string; data?: string }>;
+  usePhotoshop: boolean;
+  rotationAngle?: number;
+  ssaaQuality?: number;
+}
+
 interface SavedState {
   canvasHistory: History;
   editHistory: History;
   videoHistory: History;
   chatHistory: ChatMessage[];
   cloneState?: CloneModeState;
+  mockupState?: MockupModeState;
 }
 
 const AUTOSAVE_KEY = 'ai-image-editor-autosave';

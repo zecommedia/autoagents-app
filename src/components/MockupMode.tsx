@@ -1,47 +1,84 @@
 import React, { useState, useRef } from 'react';
 import { SpinnerIcon, ImageIcon, TrashIcon } from '../constants';
+import { processPsdsClientSide } from '../../lib/psdProcessor';
 
 interface ProcessedImage {
     filename: string;
-    path: string;
+    data: string; // Base64 data URL
+}
+
+// Electron type definitions
+declare global {
+    interface Window {
+        electron?: {
+            isElectron: boolean;
+            platform: string;
+            checkPhotoshop: () => Promise<{ installed: boolean; path?: string }>;
+            processMockupsPhotoshop: (data: {
+                podDesignPath: string;
+                psdPaths: string[];
+            }) => Promise<{
+                success: boolean;
+                processedImages?: ProcessedImage[];
+                error?: string;
+            }>;
+            saveFileDialog: (options: any) => Promise<{ filePath: string; canceled: boolean }>;
+            writeFile: (data: { filePath: string; data: string }) => Promise<{ success: boolean }>;
+            getAppVersion: () => Promise<string>;
+        };
+    }
 }
 
 const MockupMode: React.FC = () => {
-    const [stickerFile, setStickerFile] = useState<File | null>(null);
-    const [stickerPreview, setStickerPreview] = useState<string | null>(null);
+    const [podDesignFile, setPodDesignFile] = useState<File | null>(null);
+    const [podDesignPreview, setPodDesignPreview] = useState<string | null>(null);
     const [psdFiles, setPsdFiles] = useState<File[]>([]);
     const [isProcessing, setIsProcessing] = useState(false);
-    const [processedImages, setProcessedImages] = useState<Array<{ filename: string, path: string, data?: string }>>([]);
+    const [processedImages, setProcessedImages] = useState<ProcessedImage[]>([]);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
-    const [usePhotoshop, setUsePhotoshop] = useState(false); // Toggle Photoshop mode
-    const [photoshopAvailable, setPhotoshopAvailable] = useState<boolean | null>(null); // null = checking, false = not available, true = available
+    const [usePhotoshop, setUsePhotoshop] = useState(false);
+    const [photoshopAvailable, setPhotoshopAvailable] = useState<boolean | null>(null);
+    const [photoshopPath, setPhotoshopPath] = useState<string | null>(null);
+    const isElectron = typeof window.electron !== 'undefined' && window.electron?.isElectron;
 
-    const stickerInputRef = useRef<HTMLInputElement>(null);
+    const podDesignInputRef = useRef<HTMLInputElement>(null);
     const psdInputRef = useRef<HTMLInputElement>(null);
 
     // Check Photoshop availability on mount
     React.useEffect(() => {
         const checkPhotoshop = async () => {
             try {
-                const response = await fetch('http://localhost:4000/api/mockup/check-photoshop');
-                const result = await response.json();
-                setPhotoshopAvailable(result.installed);
-                console.log('Photoshop available:', result.installed, result.path);
+                if (isElectron && window.electron) {
+                    // Desktop app - check local Photoshop
+                    console.log('🖥️ Desktop Mode: Checking local Photoshop...');
+                    const result = await window.electron.checkPhotoshop();
+                    setPhotoshopAvailable(result.installed);
+                    setPhotoshopPath(result.path || null);
+                    console.log('Photoshop available (local):', result.installed, result.path);
+                } else {
+                    // Web app - check server Photoshop
+                    console.log('🌐 Web Mode: Checking server Photoshop...');
+                    const response = await fetch('http://localhost:4000/api/mockup/check-photoshop');
+                    const result = await response.json();
+                    setPhotoshopAvailable(result.installed);
+                    setPhotoshopPath(result.path || null);
+                    console.log('Photoshop available (server):', result.installed, result.path);
+                }
             } catch (error) {
                 console.error('Error checking Photoshop:', error);
                 setPhotoshopAvailable(false);
             }
         };
         checkPhotoshop();
-    }, []);
+    }, [isElectron]);
 
-    const handleStickerUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handlePodDesignUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) {
-            setStickerFile(file);
+            setPodDesignFile(file);
             const reader = new FileReader();
             reader.onload = (event) => {
-                setStickerPreview(event.target?.result as string);
+                setPodDesignPreview(event.target?.result as string);
             };
             reader.readAsDataURL(file);
         }
@@ -57,8 +94,8 @@ const MockupMode: React.FC = () => {
     };
 
     const handleProcess = async () => {
-        if (!stickerFile || psdFiles.length === 0) {
-            setErrorMessage('Vui lòng tải lên sticker và ít nhất một file PSD.');
+        if (!podDesignFile || psdFiles.length === 0) {
+            setErrorMessage('Vui lòng tải lên POD design và ít nhất một file PSD.');
             return;
         }
 
@@ -67,29 +104,61 @@ const MockupMode: React.FC = () => {
         setProcessedImages([]);
 
         try {
-            const formData = new FormData();
-            formData.append('sticker', stickerFile);
-            psdFiles.forEach((file) => {
-                formData.append('psdFiles', file);
-            });
+            if (usePhotoshop && photoshopAvailable) {
+                if (isElectron && window.electron) {
+                    // Desktop app - Process with LOCAL Photoshop
+                    console.log('🖥️ Processing with LOCAL Photoshop...');
+                    
+                    // In Electron, File objects have a 'path' property
+                    // @ts-ignore - Electron adds path property to File object
+                    const podDesignPath = podDesignFile.path;
+                    // @ts-ignore
+                    const psdPaths = psdFiles.map(file => file.path);
 
-            // Choose endpoint based on mode
-            const endpoint = usePhotoshop 
-                ? 'http://localhost:4000/api/mockup/process-mockups-photoshop'
-                : 'http://localhost:4000/api/mockup/process-mockups';
+                    if (!podDesignPath || psdPaths.some(p => !p)) {
+                        throw new Error('Could not get file paths. Make sure files are selected from local file system.');
+                    }
 
-            const response = await fetch(endpoint, {
-                method: 'POST',
-                body: formData,
-            });
+                    const result = await window.electron.processMockupsPhotoshop({
+                        podDesignPath,
+                        psdPaths
+                    });
 
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(errorText || 'Xử lý mockup thất bại');
+                    if (result.success && result.processedImages) {
+                        setProcessedImages(result.processedImages);
+                        console.log(`✓ Processed ${result.processedImages.length} mockups with local Photoshop`);
+                    } else {
+                        throw new Error(result.error || 'Xử lý mockup thất bại');
+                    }
+                } else {
+                    // Web app - Process with SERVER Photoshop
+                    console.log('� Processing with SERVER Photoshop...');
+                    const formData = new FormData();
+                    formData.append('sticker', podDesignFile);
+                    psdFiles.forEach((file) => {
+                        formData.append('psdFiles', file);
+                    });
+
+                    const response = await fetch('http://localhost:4000/api/mockup/process-mockups-photoshop', {
+                        method: 'POST',
+                        body: formData,
+                    });
+
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(errorText || 'Xử lý mockup thất bại');
+                    }
+
+                    const result = await response.json();
+                    setProcessedImages(result.processedImages);
+                }
+            } else {
+                // Fast mode: Client-side processing with ag-psd
+                console.log('⚡ Processing with Fast mode (client-side)...');
+                const results = await processPsdsClientSide(podDesignFile, psdFiles);
+                setProcessedImages(results);
+                console.log(`✓ Processed ${results.length} mockups client-side`);
             }
-
-            const result = await response.json();
-            setProcessedImages(result.processedImages);
         } catch (error) {
             console.error('Error processing mockups:', error);
             setErrorMessage(error instanceof Error ? error.message : 'Đã xảy ra lỗi không xác định');
@@ -98,27 +167,31 @@ const MockupMode: React.FC = () => {
         }
     };
 
-    const handleDownload = async (dataOrPath: string, filename: string) => {
+    const handleDownload = async (dataUrl: string, filename: string) => {
         try {
-            // If it's a data URL, download directly
-            if (dataOrPath.startsWith('data:')) {
-                const a = document.createElement('a');
-                a.href = dataOrPath;
-                a.download = filename;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
+            if (isElectron && window.electron) {
+                // Desktop app - Use native save dialog
+                const result = await window.electron.saveFileDialog({
+                    defaultPath: filename,
+                    filters: [
+                        { name: 'PNG Images', extensions: ['png'] }
+                    ]
+                });
+
+                if (!result.canceled && result.filePath) {
+                    await window.electron.writeFile({
+                        filePath: result.filePath,
+                        data: dataUrl
+                    });
+                    console.log('✓ File saved:', result.filePath);
+                }
             } else {
-                // Otherwise fetch from server (fallback)
-                const response = await fetch(`http://localhost:4000${dataOrPath}`);
-                const blob = await response.blob();
-                const url = window.URL.createObjectURL(blob);
+                // Web app - Download via browser
                 const a = document.createElement('a');
-                a.href = url;
+                a.href = dataUrl;
                 a.download = filename;
                 document.body.appendChild(a);
                 a.click();
-                window.URL.revokeObjectURL(url);
                 document.body.removeChild(a);
             }
         } catch (error) {
@@ -131,44 +204,52 @@ const MockupMode: React.FC = () => {
             <div className="flex-grow flex overflow-hidden">
                 {/* Left Panel - Upload Section */}
                 <div className="w-1/3 border-r border-zinc-700 p-6 overflow-y-auto">
-                    <h2 className="text-xl font-semibold text-white mb-6">Tạo Mockup</h2>
+                    <div className="flex items-center justify-between mb-6">
+                        <h2 className="text-xl font-semibold text-white">Tạo Mockup POD</h2>
+                        {isElectron && (
+                            <div className="flex items-center gap-2 text-xs text-green-400 bg-green-400/10 px-2 py-1 rounded">
+                                <span>🖥️</span>
+                                <span>Desktop Mode</span>
+                            </div>
+                        )}
+                    </div>
 
-                    {/* Sticker Upload */}
+                    {/* POD Design Upload */}
                     <div className="mb-6">
                         <label className="block text-sm font-medium text-zinc-300 mb-2">
-                            Sticker / Design
+                            POD Design
                         </label>
                         <input
-                            ref={stickerInputRef}
+                            ref={podDesignInputRef}
                             type="file"
                             accept="image/*"
-                            onChange={handleStickerUpload}
+                            onChange={handlePodDesignUpload}
                             className="hidden"
                         />
                         <button
-                            onClick={() => stickerInputRef.current?.click()}
+                            onClick={() => podDesignInputRef.current?.click()}
                             className="w-full h-32 border-2 border-dashed border-zinc-600 rounded-lg flex flex-col items-center justify-center hover:border-zinc-500 transition-colors"
                         >
-                            {stickerPreview ? (
+                            {podDesignPreview ? (
                                 <img
-                                    src={stickerPreview}
-                                    alt="Sticker preview"
+                                    src={podDesignPreview}
+                                    alt="POD design preview"
                                     className="max-h-28 max-w-full object-contain"
                                 />
                             ) : (
                                 <>
                                     <ImageIcon className="w-8 h-8 text-zinc-500 mb-2" />
-                                    <span className="text-sm text-zinc-500">Tải lên ảnh sticker</span>
+                                    <span className="text-sm text-zinc-500">Tải lên POD design</span>
                                 </>
                             )}
                         </button>
-                        {stickerFile && (
+                        {podDesignFile && (
                             <div className="mt-2 flex items-center justify-between text-sm text-zinc-400">
-                                <span className="truncate">{stickerFile.name}</span>
+                                <span className="truncate">{podDesignFile.name}</span>
                                 <button
                                     onClick={() => {
-                                        setStickerFile(null);
-                                        setStickerPreview(null);
+                                        setPodDesignFile(null);
+                                        setPodDesignPreview(null);
                                     }}
                                     className="ml-2 text-red-400 hover:text-red-300"
                                 >
@@ -192,9 +273,18 @@ const MockupMode: React.FC = () => {
                                 <div className="text-xs text-zinc-400">
                                     {photoshopAvailable === null && 'Checking Photoshop...'}
                                     {photoshopAvailable === false && '❌ Photoshop not installed - Fast mode only'}
-                                    {photoshopAvailable === true && usePhotoshop && 'Edit Smart Object content directly'}
-                                    {photoshopAvailable === true && !usePhotoshop && 'Quick overlay processing'}
+                                    {photoshopAvailable === true && usePhotoshop && (
+                                        isElectron 
+                                            ? '✓ Local Photoshop - Edit Smart Object directly'
+                                            : '✓ Server Photoshop - Real Smart Object editing'
+                                    )}
+                                    {photoshopAvailable === true && !usePhotoshop && 'Quick browser-based overlay'}
                                 </div>
+                                {photoshopPath && (
+                                    <div className="text-xs text-green-400 mt-1 truncate">
+                                        📁 {photoshopPath}
+                                    </div>
+                                )}
                             </div>
                             <input
                                 type="checkbox"
@@ -251,7 +341,7 @@ const MockupMode: React.FC = () => {
                     {/* Process Button */}
                     <button
                         onClick={handleProcess}
-                        disabled={!stickerFile || psdFiles.length === 0 || isProcessing}
+                        disabled={!podDesignFile || psdFiles.length === 0 || isProcessing}
                         className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-zinc-700 disabled:text-zinc-500 text-white font-medium rounded-lg transition-colors flex items-center justify-center"
                     >
                         {isProcessing ? (
@@ -289,7 +379,7 @@ const MockupMode: React.FC = () => {
                                     className="bg-zinc-800 rounded-lg overflow-hidden border border-zinc-700"
                                 >
                                     <img
-                                        src={image.data || `http://localhost:4000${image.path}`}
+                                        src={image.data}
                                         alt={image.filename}
                                         className="w-full h-64 object-contain bg-zinc-900"
                                     />
@@ -298,7 +388,7 @@ const MockupMode: React.FC = () => {
                                             {image.filename}
                                         </span>
                                         <button
-                                            onClick={() => handleDownload(image.data || image.path, image.filename)}
+                                            onClick={() => handleDownload(image.data, image.filename)}
                                             className="ml-2 px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded transition-colors"
                                         >
                                             Tải về

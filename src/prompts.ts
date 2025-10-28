@@ -49,24 +49,61 @@ Your task is to photorealistically continue the existing scene into the transpar
 };
 
 export const getRedesignConceptsPrompt = () => {
-    return `You are a creative director for a T-shirt design company. Analyze the provided T-shirt design.
-Your task is to generate 4 SHORT, ACTIONABLE, and CREATIVE redesign concepts.
+    return `You are an expert creative director and T-shirt design consultant. Analyze the provided design image and generate 4 DIVERSE, ACTIONABLE redesign concepts that inspire creativity.
 
-**CRITICAL INSTRUCTIONS:**
-1.  **Analyze the Image:** Identify the subject (e.g., IT clown), the style (e.g., vintage horror), and the composition.
-2.  **Generate Concepts:** Brainstorm 4 distinct ideas for redesigns. The concepts should be about changing either the SUBJECT or the STYLE.
-3.  **Format:** For each concept, provide two versions:
-    *   'vi': A very short, concise summary in Vietnamese (3-4 words max). This is for the UI button label.
-    *   'en': The full, actionable prompt in English, in the format "Generate [number] different [subject] in [style]".
-4.  **Output:** You MUST return a valid JSON array of objects, where each object has "vi" and "en" keys. Do not include any other text.
+**YOUR MISSION:**
+Create suggestions that help users explore different creative directions - changing subjects, styles, moods, or themes while maintaining design quality.
 
-**EXAMPLE OUTPUT for an image of a vintage IT clown:**
+**CONCEPT CATEGORIES (mix these):**
+1. **Subject Swap**: Replace main subject with similar theme (e.g., "wolf" → "4 other wild animals")
+2. **Style Transformation**: Keep subject, change art style (e.g., "vintage" → "3 different art styles: minimalist, cyberpunk, watercolor")
+3. **Mood Shift**: Same subject, different emotion (e.g., "scary clown" → "friendly clown in 4 happy scenarios")
+4. **Theme Variation**: Explore related themes (e.g., "horror" → "4 different horror sub-genres: gothic, cosmic, psychological, slasher")
+5. **Color Palette**: Same design, bold color experiments (e.g., "4 versions: neon, pastel, monochrome, sunset")
+6. **Time Period**: Transport to different era (e.g., "modern" → "retro 80s, medieval, futuristic, victorian")
+
+**FORMAT RULES:**
+1. Each concept needs TWO versions:
+   - 'vi': Ultra-short Vietnamese label (3-4 words MAX) for UI button
+   - 'en': Detailed English prompt in format: "Generate [number] [specific subject/change] in [specific style/context]"
+
+2. Make prompts SPECIFIC and ACTIONABLE:
+   ❌ Bad: "different styles"
+   ✅ Good: "cyberpunk neon, minimalist line art, watercolor splash"
+   
+3. Include NUMBER in prompt (2, 3, or 4 variations)
+
+4. Be CREATIVE but PRACTICAL - users want feasible designs
+
+**OUTPUT:** Return ONLY a valid JSON array. No markdown, no extra text.
+
+**EXAMPLES:**
+
+*For a vintage horror clown design:*
 [
-  { "vi": "4 nhân vật kinh dị khác", "en": "Generate 4 different horror icons in this vintage horror illustration style" },
-  { "vi": "3 phong cách nghệ thuật khác", "en": "Generate the Pennywise sipping tea concept in 3 different art styles (e.g., minimalist, chibi, abstract)" },
-  { "vi": "4 nhân vật phản diện", "en": "Generate 4 different infamous villains reimagined in this macabre, vintage design style" }
+  { "vi": "4 nhân vật kinh dị khác", "en": "Generate 4 different horror icons in this vintage illustration style: Freddy Krueger, Jason Voorhees, Michael Myers, Ghostface" },
+  { "vi": "3 phong cách nghệ thuật", "en": "Generate this clown concept in 3 contrasting art styles: minimalist geometric shapes, detailed Renaissance painting, pixel art 8-bit" },
+  { "vi": "4 cảnh tương phản", "en": "Generate 4 ironic scenarios: clown sipping tea elegantly, clown doing yoga, clown reading in library, clown gardening flowers" },
+  { "vi": "Bảng màu neon", "en": "Generate 4 color palette variations: neon cyberpunk, pastel candy colors, monochrome noir, sunset warm tones" }
 ]
-`
+
+*For a wolf/animal design:*
+[
+  { "vi": "4 động vật hoang dã", "en": "Generate 4 different apex predators in this same artistic style: lion, bear, tiger, eagle" },
+  { "vi": "Biến thành cyberpunk", "en": "Generate this wolf transformed into cyberpunk style: neon eyes, circuit patterns, holographic elements, metallic textures" },
+  { "vi": "4 thần thoại", "en": "Generate 4 mythological creature versions: werewolf under full moon, Fenrir Norse wolf, Japanese Okami, Egyptian Anubis" },
+  { "vi": "Các thời đại", "en": "Generate this design across 4 time periods: prehistoric cave art, medieval heraldry, 1980s synthwave, 2080s sci-fi" }
+]
+
+*For an abstract/geometric design:*
+[
+  { "vi": "4 hình học khác", "en": "Generate 4 different geometric pattern styles: sacred geometry mandala, brutalist architecture, organic flowing curves, glitch art fragmentation" },
+  { "vi": "Biến thành tự nhiên", "en": "Generate this abstract form reimagined as 4 natural elements: fire flames, water waves, earth crystals, wind spirals" },
+  { "vi": "Văn hóa thế giới", "en": "Generate this pattern in 4 cultural art styles: Japanese woodblock, African tribal, Art Deco 1920s, Middle Eastern Islamic geometry" },
+  { "vi": "4 cảm xúc màu", "en": "Generate 4 emotional color variations: aggressive red-black, peaceful blue-green, energetic yellow-orange, mysterious purple-black" }
+]
+
+**NOW ANALYZE THE PROVIDED IMAGE AND GENERATE 4 CREATIVE, DIVERSE SUGGESTIONS!**`
 };
 
 export const getCloneDesignPrompt = (options?: { chromaHex?: string }) => {
@@ -214,8 +251,28 @@ export const getFixInpaintingPrompt = (userPrompt: string) => {
 The output should ONLY be the final, edited image.`;
 };
 
+// Helper: Convert RGB to Hex
+export function rgbToHex(rgb: {r:number, g:number, b:number}): string {
+    return '#' + [rgb.r, rgb.g, rgb.b]
+        .map(x => Math.round(x).toString(16).padStart(2, '0'))
+        .join('')
+        .toUpperCase();
+}
+
+// Helper: Convert Hex to RGB
+export function hexToRgb(hex: string): {r:number, g:number, b:number} | null {
+    if (!hex) return null;
+    let h = hex.trim().replace('#', '');
+    if (h.length === 3) h = h.split('').map(c => c + c).join('');
+    if (!/^[0-9a-fA-F]{6}$/.test(h)) return null;
+    const r = parseInt(h.slice(0, 2), 16);
+    const g = parseInt(h.slice(2, 4), 16);
+    const b = parseInt(h.slice(4, 6), 16);
+    return { r, g, b };
+}
+
 // Map HEX to a friendly color name for better AI guidance
-function colorNameFromHex(hex: string): string {
+export function colorNameFromHex(hex: string): string {
     // Normalize and parse
     let h = hex.replace('#', '');
     if (h.length === 3) h = h.split('').map(c => c + c).join('');

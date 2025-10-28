@@ -212,13 +212,31 @@ class CloudApiService {
     });
   }
 
-  // Upscale
-  async upscale(image: File, scale: number = 2, onProgress?: (progress: number) => void) {
+  // Upscale with model selection
+  async upscale(image: File | string, scale: number = 4, model: string = 'realesrgan-x4plus', onProgress?: (progress: number) => void) {
+    const data: any = { scale, model };
+    
+    // Support both File and data URL
+    if (typeof image === 'string') {
+      data.imageUrl = image;
+    } else {
+      data.image = image;
+    }
+    
     return this.request({
       endpoint: '/proxy/upscale',
-      data: { image, scale },
+      data,
       timeout: 180000,
       onProgress,
+    });
+  }
+
+  // Apply drawing tools (pen/brush edits)
+  async applyDrawingTools(imageUrl: string, polygons?: Array<any>, strokes?: Array<any>) {
+    return this.request({
+      endpoint: '/proxy/apply-drawing',
+      data: { imageUrl, polygons, strokes },
+      timeout: 120000,
     });
   }
 
@@ -279,6 +297,26 @@ class CloudApiService {
       endpoint: '/proxy/redesign-suggestions',
       data: { image, prompt },
       timeout: 120000, // 2 minutes (Gemini structured output can be slow)
+    });
+  }
+
+  // Detailed Redesign Prompts (Gemini 2.5 Flash with Image + Concept Expansion)
+  // Expands a high-level concept into multiple detailed, specific prompts
+  async detailedRedesignPrompts(
+    image: File, 
+    concept: string, 
+    numberOfIdeas: number,
+    systemPrompt: string
+  ) {
+    return this.request({
+      endpoint: '/proxy/detailed-redesign-prompts',
+      data: { 
+        image, 
+        concept, 
+        numberOfIdeas: numberOfIdeas.toString(), 
+        systemPrompt 
+      },
+      timeout: 120000, // 2 minutes for structured JSON generation
     });
   }
 

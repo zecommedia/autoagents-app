@@ -127,15 +127,21 @@ const resizeImage = (imageUrl: string, targetW: number, targetH: number): Promis
 };
 
 // Helper: Upscale image via cloudApiService
-const upscaleImageViaCloud = async (dataUrl: string, scale: number = 2): Promise<string> => {
+// Model determines scale: x4plus → 4x, x2plus → 2x (matches AutoAgents-Redesign)
+const upscaleImageViaCloud = async (dataUrl: string, model: string = 'realesrgan-x4plus'): Promise<string> => {
     try {
         // Convert dataUrl to File
         const response = await fetch(dataUrl);
         const blob = await response.blob();
         const file = new File([blob], 'image.png', { type: 'image/png' });
 
-        // Call cloudApiService.upscale()
-        const result = await cloudApiService.upscale(file, scale);
+        // Determine scale from model name (match AutoAgents-Redesign behavior)
+        const scale = model.includes('x4') ? 4 : model.includes('x2') ? 2 : 4;
+        
+        console.log(`🔍 Upscaling with model: ${model}, scale: ${scale}x`);
+
+        // Call cloudApiService.upscale() with selected model
+        const result = await cloudApiService.upscale(file, scale, model);
         
         if (!result.success || !result.data) {
             throw new Error(result.error || 'Upscale failed');
@@ -143,9 +149,12 @@ const upscaleImageViaCloud = async (dataUrl: string, scale: number = 2): Promise
 
         // Return as data URL
         const base64Data = typeof result.data === 'string' ? result.data : result.data.image || result.data.data;
-        return base64Data.startsWith('data:') ? base64Data : `data:image/png;base64,${base64Data}`;
+        const finalDataUrl = base64Data.startsWith('data:') ? base64Data : `data:image/png;base64,${base64Data}`;
+        
+        console.log(`✅ Upscaled successfully to ${scale}x`);
+        return finalDataUrl;
     } catch (error) {
-        console.error('Upscale via cloud failed:', error);
+        console.error('❌ Upscale via cloud failed:', error);
         throw error;
     }
 };
@@ -176,6 +185,8 @@ export interface CloneModeState {
   chromaMode: 'green' | 'magenta';
   artifactCleanupSize: number;
   selectedUpscaleModel: string;
+  rotationAngle: number;
+  autoRotate: boolean;
 }
 
 interface CloneModeProps {
@@ -261,6 +272,10 @@ const CloneMode: React.FC<CloneModeProps> = ({ initialState, onStateChange }) =>
     const [pickedChroma, setPickedChroma] = useState<{r:number,g:number,b:number}|null>(null);
     // UI improvements: advanced toggle and pen eraser tool state
     const [isAdvancedOpen, setIsAdvancedOpen] = useState<boolean>(false);
+    
+    // Rotation controls
+    const [rotationAngle, setRotationAngle] = useState<number>(initialState?.rotationAngle || 0);
+    const [autoRotate, setAutoRotate] = useState<boolean>(true);
     
     // Model selection modal
     const [showModelSelection, setShowModelSelection] = useState<boolean>(false);
@@ -511,10 +526,10 @@ const CloneMode: React.FC<CloneModeProps> = ({ initialState, onStateChange }) =>
         []
     );
     
-    // LIGHT (client-side real-time): All params process instantly including SSAA and decontamination
+    // LIGHT (client-side real-time): All params process instantly including rotation
     const currentLightParams = useMemo(() =>
-        `${chromaTolerance}-${morphOp}-${morphIter}-${featherRadius}-${edgeChoke}-${cornerSmoothing}-${cornerRefinement}-${edgeSmoothing}-${borderCleanup}-${contrastEnhancement}-${edgeRadius}-${matteEdge}-${chromaMode}-${ssaaQuality}-${decontamination}`,
-        [chromaTolerance, morphOp, morphIter, featherRadius, edgeChoke, cornerSmoothing, cornerRefinement, edgeSmoothing, borderCleanup, contrastEnhancement, edgeRadius, matteEdge, chromaMode, ssaaQuality, decontamination]
+        `${chromaTolerance}-${morphOp}-${morphIter}-${featherRadius}-${edgeChoke}-${cornerSmoothing}-${cornerRefinement}-${edgeSmoothing}-${borderCleanup}-${contrastEnhancement}-${edgeRadius}-${matteEdge}-${chromaMode}-${ssaaQuality}-${decontamination}-${rotationAngle}`,
+        [chromaTolerance, morphOp, morphIter, featherRadius, edgeChoke, cornerSmoothing, cornerRefinement, edgeSmoothing, borderCleanup, contrastEnhancement, edgeRadius, matteEdge, chromaMode, ssaaQuality, decontamination, rotationAngle]
     );
     
     // SMART PREVIEW: Only re-process server if heavy params change
@@ -629,6 +644,8 @@ const CloneMode: React.FC<CloneModeProps> = ({ initialState, onStateChange }) =>
                 chromaMode: chromaMode === 'green' ? 'green' : 'magenta',
                 artifactCleanupSize,
                 selectedUpscaleModel,
+                rotationAngle,
+                autoRotate,
             };
             onStateChange(currentState);
         }, 500); // 500ms debounce
@@ -896,12 +913,49 @@ const CloneMode: React.FC<CloneModeProps> = ({ initialState, onStateChange }) =>
                 return;
             }
             
-            // Draw with high quality scaling if SSAA
-            if (ssaaQuality > 1.0) {
+            // Apply rotation if angle is set
+            if (rotationAngle !== 0) {
+                const angleRad = (rotationAngle * Math.PI) / 180;
+                const cos = Math.abs(Math.cos(angleRad));
+                const sin = Math.abs(Math.sin(angleRad));
+                
+                // Recalculate canvas size for rotated image
+                const rotatedWidth = Math.ceil(img.naturalWidth * cos + img.naturalHeight * sin);
+                const rotatedHeight = Math.ceil(img.naturalWidth * sin + img.naturalHeight * cos);
+                
+                // Apply SSAA to rotated dimensions
+                if (ssaaQuality > 1.0) {
+                    canvas.width = Math.round(rotatedWidth * ssaaQuality);
+                    canvas.height = Math.round(rotatedHeight * ssaaQuality);
+                } else {
+                    canvas.width = rotatedWidth;
+                    canvas.height = rotatedHeight;
+                }
+                
+                // Apply rotation transform
+                ctx.save();
+                ctx.translate(canvas.width / 2, canvas.height / 2);
+                ctx.rotate(angleRad);
+                
+                // Draw with high quality scaling
                 ctx.imageSmoothingEnabled = true;
                 ctx.imageSmoothingQuality = 'high';
+                
+                const drawWidth = ssaaQuality > 1.0 ? img.naturalWidth * ssaaQuality : img.naturalWidth;
+                const drawHeight = ssaaQuality > 1.0 ? img.naturalHeight * ssaaQuality : img.naturalHeight;
+                ctx.drawImage(img, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+                ctx.restore();
+                
+                console.log(`🔄 Applied rotation: ${rotationAngle.toFixed(2)}° (${canvas.width}x${canvas.height})`);
+            } else {
+                // No rotation - standard draw
+                // Draw with high quality scaling if SSAA
+                if (ssaaQuality > 1.0) {
+                    ctx.imageSmoothingEnabled = true;
+                    ctx.imageSmoothingQuality = 'high';
+                }
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
             }
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
             
             const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
             
@@ -967,10 +1021,22 @@ const CloneMode: React.FC<CloneModeProps> = ({ initialState, onStateChange }) =>
             // FULL RESOLUTION PROCESSING: Process at original size for WYSIWYG
             // Preview = Download (no server reprocess needed)
             const canvas = document.createElement('canvas');
-            canvas.width = img.naturalWidth;
-            canvas.height = img.naturalHeight;
             
-            console.log(`🎨 Client-side processing at FULL RES: ${canvas.width}x${canvas.height}`);
+            // Apply rotation if angle is set
+            if (rotationAngle !== 0) {
+                const angleRad = (rotationAngle * Math.PI) / 180;
+                const cos = Math.abs(Math.cos(angleRad));
+                const sin = Math.abs(Math.sin(angleRad));
+                
+                // Calculate rotated dimensions
+                canvas.width = Math.ceil(img.naturalWidth * cos + img.naturalHeight * sin);
+                canvas.height = Math.ceil(img.naturalWidth * sin + img.naturalHeight * cos);
+            } else {
+                canvas.width = img.naturalWidth;
+                canvas.height = img.naturalHeight;
+            }
+            
+            console.log(`🎨 Client-side processing at FULL RES: ${canvas.width}x${canvas.height}${rotationAngle !== 0 ? ` (rotated ${rotationAngle.toFixed(2)}°)` : ''}`);
             
             const ctx = canvas.getContext('2d', { 
                 willReadFrequently: true,
@@ -979,7 +1045,20 @@ const CloneMode: React.FC<CloneModeProps> = ({ initialState, onStateChange }) =>
             });
             if (!ctx) return;
             
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            // Apply rotation transform if needed
+            if (rotationAngle !== 0) {
+                const angleRad = (rotationAngle * Math.PI) / 180;
+                ctx.save();
+                ctx.translate(canvas.width / 2, canvas.height / 2);
+                ctx.rotate(angleRad);
+                ctx.imageSmoothingEnabled = true;
+                ctx.imageSmoothingQuality = 'high';
+                ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
+                ctx.restore();
+            } else {
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            }
+            
             const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
             const data = imageData.data;
             
@@ -2094,21 +2173,32 @@ const CloneMode: React.FC<CloneModeProps> = ({ initialState, onStateChange }) =>
                     const clonedImageUrl = `data:image/png;base64,${result.newImageBase64s[0]}`;
                     setClonedImage(clonedImageUrl);
                     
-                    // Detect and crop pattern to maximize design before upscaling
+                    // STEP 1: Crop sát thiết kế TRƯỚC khi upscale để tối ưu
                     setStep('detecting');
                     const croppedImageUrl = await detectAndCropPattern(clonedImageUrl);
                     
+                    // STEP 2: Rotate image if angle is set
+                    let rotatedImageUrl = croppedImageUrl;
+                    if (rotationAngle !== 0) {
+                        console.log(`🔄 Applying rotation: ${rotationAngle.toFixed(2)}°`);
+                        rotatedImageUrl = await rotateImage(croppedImageUrl, rotationAngle);
+                    }
+                    
+                    // STEP 3: Upscale ảnh đã crop và rotate (model name determines scale: x4 or x2)
                     setStep('upscaling');
-                    // Use cloudApiService.upscale() instead of replicateService
-                    const upscaledImageUrl = await upscaleImageViaCloud(croppedImageUrl, 2);
-                    setUpscaledImage(upscaledImageUrl);
+                    const upscaledImageUrl = await upscaleImageViaCloud(rotatedImageUrl, selectedUpscaleModel);
+                    
+                    // STEP 4: Resize về kích thước chuẩn 4500x5100px (T-shirt template size)
                     setStep('resizing');
+                    const resizedImageUrl = await resizeToStandardSize(upscaledImageUrl, 4500, 5100);
+                    setUpscaledImage(resizedImageUrl);
 
-                    // Set flag BEFORE processing cutout to prevent double execution
+                    // Set flag BEFORE setting final image to prevent double execution
                     setIsInitialProcessing(true);
 
-                    // Use server-side cutout processing to ensure clean alpha and correct final canvas
-                    const processedDataUrl = await runProcessCutout(upscaledImageUrl);
+                    // STEP 5: Process cutout to refine edges and remove background artifacts
+                    setStep('processing');
+                    const processedDataUrl = await runProcessCutout(resizedImageUrl, false);
                     setFinalImage(processedDataUrl);
                     setTuningDirty(false); // initial final matches current tuning
                     setIsReprocessing(false); // Ensure spinner stops
@@ -2135,6 +2225,114 @@ const CloneMode: React.FC<CloneModeProps> = ({ initialState, onStateChange }) =>
         };
         reader.readAsDataURL(pendingFile);
         setPendingFile(null);
+    };
+
+    /**
+     * Rotate image by specified angle (in degrees)
+     * Positive = clockwise, Negative = counter-clockwise
+     */
+    const rotateImage = async (imageDataUrl: string, angle: number): Promise<string> => {
+        if (angle === 0) return imageDataUrl;
+        
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.crossOrigin = 'Anonymous';
+            
+            img.onload = () => {
+                try {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) {
+                        resolve(imageDataUrl);
+                        return;
+                    }
+                    
+                    // Convert angle to radians
+                    const angleRad = (angle * Math.PI) / 180;
+                    
+                    // Calculate bounding box for rotated image
+                    const cos = Math.abs(Math.cos(angleRad));
+                    const sin = Math.abs(Math.sin(angleRad));
+                    const newWidth = Math.ceil(img.width * cos + img.height * sin);
+                    const newHeight = Math.ceil(img.width * sin + img.height * cos);
+                    
+                    canvas.width = newWidth;
+                    canvas.height = newHeight;
+                    
+                    // Move to center, rotate, then draw
+                    ctx.translate(newWidth / 2, newHeight / 2);
+                    ctx.rotate(angleRad);
+                    ctx.imageSmoothingEnabled = true;
+                    ctx.imageSmoothingQuality = 'high';
+                    ctx.drawImage(img, -img.width / 2, -img.height / 2);
+                    
+                    console.log(`🔄 Rotated ${angle.toFixed(2)}° (${img.width}x${img.height} → ${newWidth}x${newHeight})`);
+                    resolve(canvas.toDataURL('image/png'));
+                } catch (e) {
+                    console.error('Rotation failed:', e);
+                    resolve(imageDataUrl);
+                }
+            };
+            
+            img.onerror = () => {
+                console.error('Image load failed for rotation');
+                resolve(imageDataUrl);
+            };
+            img.src = imageDataUrl;
+        });
+    };
+
+    // Resize image to standard T-shirt template size (4500x5100px)
+    // Maintains aspect ratio by fitting within bounds and centering on transparent background
+    const resizeToStandardSize = async (imageDataUrl: string, targetWidth: number, targetHeight: number): Promise<string> => {
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.crossOrigin = 'Anonymous';
+            
+            img.onload = () => {
+                try {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) {
+                        resolve(imageDataUrl);
+                        return;
+                    }
+                    
+                    // Set canvas to standard size
+                    canvas.width = targetWidth;
+                    canvas.height = targetHeight;
+                    
+                    // Calculate scaling to fit within bounds while maintaining aspect ratio
+                    const scaleX = targetWidth / img.width;
+                    const scaleY = targetHeight / img.height;
+                    const scale = Math.min(scaleX, scaleY); // Fit within bounds
+                    
+                    const scaledWidth = img.width * scale;
+                    const scaledHeight = img.height * scale;
+                    
+                    // Center the image on canvas
+                    const offsetX = (targetWidth - scaledWidth) / 2;
+                    const offsetY = (targetHeight - scaledHeight) / 2;
+                    
+                    // Draw with high quality
+                    ctx.imageSmoothingEnabled = true;
+                    ctx.imageSmoothingQuality = 'high';
+                    ctx.drawImage(img, offsetX, offsetY, scaledWidth, scaledHeight);
+                    
+                    console.log(`📐 Resized from ${img.width}x${img.height} to ${targetWidth}x${targetHeight} (scaled: ${scaledWidth.toFixed(0)}x${scaledHeight.toFixed(0)})`);
+                    resolve(canvas.toDataURL('image/png'));
+                } catch (e) {
+                    console.error('Resize failed:', e);
+                    resolve(imageDataUrl);
+                }
+            };
+            
+            img.onerror = () => {
+                console.error('Image load failed for resize');
+                resolve(imageDataUrl);
+            };
+            img.src = imageDataUrl;
+        });
     };
 
     // Detect pattern boundaries and crop to maximize design (chroma-distance aware)
@@ -3501,6 +3699,100 @@ const CloneMode: React.FC<CloneModeProps> = ({ initialState, onStateChange }) =>
 
             {step !== 'upload' && (
                 <div className="flex-1 flex relative overflow-hidden">
+                    {/* Left Toolbar */}
+                    {step === 'done' && (
+                        <div className="absolute top-1/2 left-4 -translate-y-1/2 z-40">
+                            <div className="bg-zinc-800/90 backdrop-blur-sm border border-zinc-700 rounded-xl p-1.5 flex flex-col items-center space-y-1 shadow-2xl">
+                                {/* Pen Tool */}
+                                <button
+                                    onClick={() => setIsPenErasing(!isPenErasing)}
+                                    className={`relative group p-2.5 rounded-lg transition-colors ${
+                                        isPenErasing ? 'bg-white text-black' : 'hover:bg-zinc-700'
+                                    }`}
+                                    aria-label="Pen Tool (P)"
+                                >
+                                    <svg className="w-5 h-5" viewBox="0 0 16 16" fill="currentColor">
+                                        <path d="M 8 0 L 6 4 L 10 4 Z"/>
+                                        <path d="M 8 4 L 8 12" stroke="currentColor" strokeWidth="1.5" fill="none"/>
+                                        <circle cx="8" cy="12" r="2"/>
+                                    </svg>
+                                    <span className="absolute left-full ml-3 top-1/2 -translate-y-1/2 whitespace-nowrap bg-zinc-900 text-white text-xs px-2 py-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg z-50">
+                                        Pen Tool (P)
+                                    </span>
+                                </button>
+
+                                {/* Brush Tool */}
+                                <button
+                                    onClick={() => setActiveTool(activeTool === 'brush' ? null : 'brush')}
+                                    className={`relative group p-2.5 rounded-lg transition-colors ${
+                                        activeTool === 'brush' ? 'bg-white text-black' : 'hover:bg-zinc-700'
+                                    }`}
+                                    aria-label="Brush Tool (B)"
+                                >
+                                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <path d="M15 5l4 4"/>
+                                        <path d="m13 7-7.5 7.5a1.41 1.41 0 0 0 0 2l1 1a1.41 1.41 0 0 0 2 0L16 10"/>
+                                    </svg>
+                                    <span className="absolute left-full ml-3 top-1/2 -translate-y-1/2 whitespace-nowrap bg-zinc-900 text-white text-xs px-2 py-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg z-50">
+                                        Brush Tool (B)
+                                    </span>
+                                </button>
+
+                                {/* Eraser Tool */}
+                                <button
+                                    onClick={() => setActiveTool(activeTool === 'eraser' ? null : 'eraser')}
+                                    className={`relative group p-2.5 rounded-lg transition-colors ${
+                                        activeTool === 'eraser' ? 'bg-white text-black' : 'hover:bg-zinc-700'
+                                    }`}
+                                    aria-label="Eraser Tool (E)"
+                                >
+                                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/>
+                                    </svg>
+                                    <span className="absolute left-full ml-3 top-1/2 -translate-y-1/2 whitespace-nowrap bg-zinc-900 text-white text-xs px-2 py-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg z-50">
+                                        Eraser Tool (E)
+                                    </span>
+                                </button>
+
+                                <div className="w-10/12 h-px bg-zinc-700 my-0.5"></div>
+
+                                {/* Undo */}
+                                <div className="relative group">
+                                    <button 
+                                        onClick={undo} 
+                                        disabled={undoHistory.length === 0} 
+                                        className="p-2.5 rounded-lg hover:bg-zinc-700 text-white disabled:text-zinc-600 disabled:cursor-not-allowed transition-colors"
+                                        aria-label="Undo"
+                                    >
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                                        </svg>
+                                    </button>
+                                    <span className="absolute left-full ml-3 top-1/2 -translate-y-1/2 whitespace-nowrap bg-zinc-900 text-white text-xs px-2 py-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg z-50">
+                                        Undo (Ctrl+Z)
+                                    </span>
+                                </div>
+
+                                {/* Redo */}
+                                <div className="relative group">
+                                    <button 
+                                        onClick={redo} 
+                                        disabled={redoHistory.length === 0} 
+                                        className="p-2.5 rounded-lg hover:bg-zinc-700 text-white disabled:text-zinc-600 disabled:cursor-not-allowed transition-colors"
+                                        aria-label="Redo"
+                                    >
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 10H11a8 8 0 00-8 8v2m18-10l-6 6m6-6l-6-6" />
+                                        </svg>
+                                    </button>
+                                    <span className="absolute left-full ml-3 top-1/2 -translate-y-1/2 whitespace-nowrap bg-zinc-900 text-white text-xs px-2 py-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg z-50">
+                                        Redo (Ctrl+Shift+Z)
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Image Panel: Takes up remaining space and handles its own overflow */}
                     <div className={`flex-1 flex items-center justify-center p-4 bg-zinc-900 relative ${isPenErasing || activeTool ? 'overflow-hidden' : 'overflow-auto'}`}>
                         {(step === 'cloning' || step === 'detecting' || step === 'upscaling' || step === 'resizing') && (
@@ -3535,7 +3827,7 @@ const CloneMode: React.FC<CloneModeProps> = ({ initialState, onStateChange }) =>
                                     cursor: isPickingChroma 
                                         ? getCursorStyle('eyedropper')
                                         : isPenErasing
-                                        ? (isNearFirstPoint ? getCursorStyle('penTool', 'special') : getCursorStyle('penTool'))
+                                        ? (isNearFirstPoint ? 'pointer' : getCursorStyle('penTool'))
                                         : activeTool === 'brush'
                                         ? 'crosshair'
                                         : activeTool === 'eraser'
@@ -4275,6 +4567,62 @@ const CloneMode: React.FC<CloneModeProps> = ({ initialState, onStateChange }) =>
                                                 </div>
                                                 <input type="range" min={0} max={5} step={1} value={artifactCleanupSize} onChange={e=>setArtifactCleanupSize(Number(e.target.value))} className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-purple-500" />
                                             </label>
+                                        </div>
+                                    </div>
+
+                                    {/* Rotation controls */}
+                                    <div className="pt-2 mt-2 border-t border-purple-700/20">
+                                        <h5 className="text-xs text-purple-300 font-medium mb-2">Rotation Adjustment</h5>
+                                        <div className="space-y-2">
+                                            <label className="flex items-center gap-2 text-xs">
+                                                <input 
+                                                    type="checkbox" 
+                                                    checked={autoRotate} 
+                                                    onChange={e => setAutoRotate(e.target.checked)}
+                                                    className="w-3.5 h-3.5 accent-purple-500"
+                                                />
+                                                <span className="text-purple-200">Auto-detect rotation</span>
+                                                <span className="text-gray-400 cursor-help" title="Automatically detect and correct tilted designs">ⓘ</span>
+                                            </label>
+
+                                            <label className="block text-xs space-y-1">
+                                                <div className="flex justify-between items-center">
+                                                    <span className="text-purple-200 font-medium flex items-center gap-1">
+                                                        Rotation Angle (°)
+                                                        <span className="text-gray-400 cursor-help" title="Manual rotation angle (-180° to +180°)">ⓘ</span>
+                                                    </span>
+                                                    <input 
+                                                        type="number" 
+                                                        min={-180} 
+                                                        max={180} 
+                                                        step={0.01}
+                                                        value={rotationAngle.toFixed(2)} 
+                                                        onChange={e=>setRotationAngle(Number(e.target.value))}
+                                                        onWheel={e=>{ e.stopPropagation(); setRotationAngle(Math.max(-180, Math.min(180, rotationAngle + (e.deltaY < 0 ? 0.1 : -0.1)))); }}
+                                                        onFocus={e=>e.currentTarget.addEventListener('wheel', (ev) => ev.preventDefault(), {passive: false})}
+                                                        onBlur={e=>e.currentTarget.removeEventListener('wheel', (ev) => ev.preventDefault())}
+                                                        className="w-20 px-1.5 py-0.5 bg-purple-700/50 text-purple-100 text-xs rounded font-mono text-center border-0 focus:ring-1 focus:ring-purple-500"
+                                                    />
+                                                </div>
+                                                <input 
+                                                    type="range" 
+                                                    min={-180} 
+                                                    max={180} 
+                                                    step={0.01} 
+                                                    value={rotationAngle} 
+                                                    onChange={e=>setRotationAngle(Number(e.target.value))} 
+                                                    className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-purple-500" 
+                                                />
+                                            </label>
+
+                                            {rotationAngle !== 0 && (
+                                                <button
+                                                    onClick={() => setRotationAngle(0)}
+                                                    className="w-full px-2 py-1 bg-purple-700/50 hover:bg-purple-600/50 text-purple-100 text-xs rounded transition-colors"
+                                                >
+                                                    Reset Rotation
+                                                </button>
+                                            )}
                                         </div>
                                     </div>
                                 </div>}
