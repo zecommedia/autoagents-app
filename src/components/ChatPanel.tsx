@@ -214,19 +214,8 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ history, onSendMessage, isGenerat
                                             {hasImages && (
                                                 <div className={`grid grid-cols-2 gap-2 ${hasText ? 'mb-3' : ''}`}>
                                                     {imageParts.map((part, partIndex) => {
-                                                        const { mimeType } = (part as any).inlineData || {};
-                                                        let data = (part as any).inlineData?.data as any;
-                                                        // Defensive: some paths accidentally store an object or a full data URL
-                                                        if (data && typeof data === 'object') {
-                                                            data = data.data || data.base64 || data.image || '';
-                                                        }
-                                                        if (typeof data === 'string' && data.startsWith('data:')) {
-                                                            // If a full data URL slipped in, extract pure base64 after the comma
-                                                            const maybeBase64 = data.split(',')[1];
-                                                            if (maybeBase64) data = maybeBase64;
-                                                        }
-                                                        const safeMime = typeof mimeType === 'string' && mimeType ? mimeType : 'image/png';
-                                                        const src = `data:${safeMime};base64,${typeof data === 'string' ? data : ''}`;
+                                                        const { mimeType, data } = (part as any).inlineData;
+                                                        const src = `data:${mimeType};base64,${data}`;
                                                         return (
                                                             <div key={partIndex} className="aspect-square bg-zinc-900 rounded-lg overflow-hidden">
                                                                 <img 

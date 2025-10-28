@@ -15,6 +15,26 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
     <link rel="manifest" href="/site.webmanifest">
     
+    <!-- Suppress passive event listener warnings -->
+    <script>
+      // Suppress passive event listener warnings in dev mode
+      if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        const originalAddEventListener = EventTarget.prototype.addEventListener;
+        EventTarget.prototype.addEventListener = function(type, listener, options) {
+          if (type === 'wheel' || type === 'touchstart' || type === 'touchmove') {
+            if (typeof options === 'boolean') {
+              options = { capture: options, passive: true };
+            } else if (typeof options === 'object' && options !== null) {
+              options.passive = options.passive !== false;
+            } else {
+              options = { passive: true };
+            }
+          }
+          return originalAddEventListener.call(this, type, listener, options);
+        };
+      }
+    </script>
+    
     <script src="https://cdn.tailwindcss.com"></script>
   <script type="importmap">
 {

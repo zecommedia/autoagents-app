@@ -1,17 +1,86 @@
 // Electron Main Process
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
 const path = require('path');
-const { exec } = require('child_process');
+const { exec, spawn } = require('child_process');
 const { promisify } = require('util');
 const fs = require('fs').promises;
 const os = require('os');
+const net = require('net');
+const updater = require('./updater');
 
 const execAsync = promisify(exec);
 
 let mainWindow;
+let viteProcess = null;
+
+// Check if port is in use
+function checkPort(port) {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.once('error', () => resolve(false));
+    server.once('listening', () => {
+      server.close();
+      resolve(true);
+    });
+    server.listen(port);
+  });
+}
+
+// Start Vite dev server
+async function startDevServer() {
+  const isDev = process.env.NODE_ENV === 'development';
+  if (!isDev) return;
+
+  // Check if port 3000 is already in use
+  const isPortFree = await checkPort(3000);
+  if (!isPortFree) {
+    console.log('📡 Dev server already running on port 3000');
+    return;
+  }
+
+  console.log('🚀 Starting Vite dev server...');
+  
+  // Start Vite in background
+  viteProcess = spawn('npm', ['run', 'dev'], {
+    cwd: path.join(__dirname, '..'),
+    shell: true,
+    stdio: 'pipe'
+  });
+
+  viteProcess.stdout.on('data', (data) => {
+    console.log(`[Vite] ${data.toString().trim()}`);
+  });
+
+  viteProcess.stderr.on('data', (data) => {
+    console.error(`[Vite Error] ${data.toString().trim()}`);
+  });
+
+  // Wait for server to be ready
+  return new Promise((resolve) => {
+    const checkServer = setInterval(async () => {
+      try {
+        const response = await fetch('http://localhost:3000');
+        if (response.ok) {
+          clearInterval(checkServer);
+          console.log('✓ Vite dev server ready');
+          resolve();
+        }
+      } catch (e) {
+        // Server not ready yet
+      }
+    }, 500);
+  });
+}
 
 // Create main window
-function createWindow() {
+async function createWindow() {
+  const isDev = process.env.NODE_ENV === 'development';
+  
+  // Start dev server in development mode
+  if (isDev) {
+    await startDevServer();
+  }
+
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -20,26 +89,41 @@ function createWindow() {
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js')
     },
-    icon: path.join(__dirname, 'icon.png')
+    icon: path.join(__dirname, '../public/icon.png')
   });
 
   // Load React app
-  const isDev = process.env.NODE_ENV === 'development';
   if (isDev) {
     mainWindow.loadURL('http://localhost:3000');
     mainWindow.webContents.openDevTools();
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../build/index.html'));
+    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
 
   mainWindow.on('closed', () => {
     mainWindow = null;
+  });
+
+  // Set main window reference for updater
+  updater.setMainWindow(mainWindow);
+
+  // Check for updates after window loads
+  // 🧪 TESTING: Enabled in development mode to test with mock server
+  mainWindow.webContents.once('did-finish-load', () => {
+    setTimeout(() => {
+      updater.checkForUpdates(false);
+    }, 3000); // Wait 3 seconds before checking
   });
 }
 
 app.whenReady().then(createWindow);
 
 app.on('window-all-closed', () => {
+  // Kill Vite process when app closes
+  if (viteProcess) {
+    viteProcess.kill();
+  }
+  
   if (process.platform !== 'darwin') {
     app.quit();
   }
@@ -48,6 +132,13 @@ app.on('window-all-closed', () => {
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
+  }
+});
+
+// Clean up on quit
+app.on('quit', () => {
+  if (viteProcess) {
+    viteProcess.kill();
   }
 });
 
@@ -228,6 +319,40 @@ ipcMain.handle('process-mockups-photoshop', async (event, { podDesignPath, psdPa
   }
 });
 
+// Open file dialog - Select single file
+ipcMain.handle('select-file', async (event, options = {}) => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile'],
+    filters: options.filters || [
+      { name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'] }
+    ],
+    title: options.title || 'Select File'
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return { canceled: true, filePath: null };
+  }
+
+  return { canceled: false, filePath: result.filePaths[0] };
+});
+
+// Open file dialog - Select multiple files
+ipcMain.handle('select-files', async (event, options = {}) => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile', 'multiSelections'],
+    filters: options.filters || [
+      { name: 'PSD Files', extensions: ['psd'] }
+    ],
+    title: options.title || 'Select Files'
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return { canceled: true, filePaths: [] };
+  }
+
+  return { canceled: false, filePaths: result.filePaths };
+});
+
 // Save file dialog
 ipcMain.handle('save-file-dialog', async (event, { defaultPath, filters }) => {
   const result = await dialog.showSaveDialog(mainWindow, {
@@ -254,6 +379,25 @@ ipcMain.handle('write-file', async (event, { filePath, data }) => {
 // Get app version
 ipcMain.handle('get-app-version', () => {
   return app.getVersion();
+});
+
+// ============================================
+// AUTO-UPDATE IPC HANDLERS
+// ============================================
+
+// Check for updates manually
+ipcMain.handle('check-for-updates', async () => {
+  return await updater.checkForUpdates(true);
+});
+
+// Download update
+ipcMain.handle('download-update', () => {
+  updater.downloadUpdate();
+});
+
+// Install update
+ipcMain.handle('install-update', () => {
+  updater.quitAndInstall();
 });
 
 console.log('🚀 Electron main process started');

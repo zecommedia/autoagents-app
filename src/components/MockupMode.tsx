@@ -14,6 +14,8 @@ declare global {
             isElectron: boolean;
             platform: string;
             checkPhotoshop: () => Promise<{ installed: boolean; path?: string }>;
+            selectFile: (options?: any) => Promise<{ canceled: boolean; filePath: string | null }>;
+            selectFiles: (options?: any) => Promise<{ canceled: boolean; filePaths: string[] }>;
             processMockupsPhotoshop: (data: {
                 podDesignPath: string;
                 psdPaths: string[];
@@ -32,7 +34,9 @@ declare global {
 const MockupMode: React.FC = () => {
     const [podDesignFile, setPodDesignFile] = useState<File | null>(null);
     const [podDesignPreview, setPodDesignPreview] = useState<string | null>(null);
+    const [podDesignPath, setPodDesignPath] = useState<string | null>(null); // For Electron
     const [psdFiles, setPsdFiles] = useState<File[]>([]);
+    const [psdFilePaths, setPsdFilePaths] = useState<string[]>([]); // For Electron
     const [isProcessing, setIsProcessing] = useState(false);
     const [processedImages, setProcessedImages] = useState<ProcessedImage[]>([]);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -72,31 +76,76 @@ const MockupMode: React.FC = () => {
         checkPhotoshop();
     }, [isElectron]);
 
-    const handlePodDesignUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file) {
-            setPodDesignFile(file);
-            const reader = new FileReader();
-            reader.onload = (event) => {
-                setPodDesignPreview(event.target?.result as string);
-            };
-            reader.readAsDataURL(file);
+    const handlePodDesignUpload = async (e?: React.ChangeEvent<HTMLInputElement>) => {
+        if (isElectron && window.electron) {
+            // Desktop mode - use Electron dialog
+            const result = await window.electron.selectFile({
+                filters: [
+                    { name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'] }
+                ],
+                title: 'Select POD Design Image'
+            });
+
+            if (!result.canceled && result.filePath) {
+                setPodDesignPath(result.filePath);
+                // Create a preview - we'll use a file:// URL or read via IPC later
+                // For now, just store the path and show filename
+                setPodDesignPreview(null); // Will be handled by the processing
+                console.log('Selected POD design:', result.filePath);
+            }
+        } else {
+            // Web mode - use file input
+            const file = e?.target.files?.[0];
+            if (file) {
+                setPodDesignFile(file);
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    setPodDesignPreview(event.target?.result as string);
+                };
+                reader.readAsDataURL(file);
+            }
         }
     };
 
-    const handlePsdUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const files = Array.from(e.target.files || []);
-        setPsdFiles((prev) => [...prev, ...files]);
+    const handlePsdUpload = async (e?: React.ChangeEvent<HTMLInputElement>) => {
+        if (isElectron && window.electron) {
+            // Desktop mode - use Electron dialog
+            const result = await window.electron.selectFiles({
+                filters: [
+                    { name: 'PSD Files', extensions: ['psd'] }
+                ],
+                title: 'Select PSD Template Files'
+            });
+
+            if (!result.canceled && result.filePaths.length > 0) {
+                setPsdFilePaths(prev => [...prev, ...result.filePaths]);
+            }
+        } else {
+            // Web mode - use file input
+            const files = Array.from(e?.target.files || []);
+            setPsdFiles((prev) => [...prev, ...files]);
+        }
     };
 
     const removePsdFile = (index: number) => {
-        setPsdFiles((prev) => prev.filter((_, i) => i !== index));
+        if (isElectron) {
+            setPsdFilePaths((prev) => prev.filter((_, i) => i !== index));
+        } else {
+            setPsdFiles((prev) => prev.filter((_, i) => i !== index));
+        }
     };
 
     const handleProcess = async () => {
-        if (!podDesignFile || psdFiles.length === 0) {
-            setErrorMessage('Vui lòng tải lên POD design và ít nhất một file PSD.');
-            return;
+        if (isElectron) {
+            if (!podDesignPath || psdFilePaths.length === 0) {
+                setErrorMessage('Vui lòng chọn POD design và ít nhất một file PSD.');
+                return;
+            }
+        } else {
+            if (!podDesignFile || psdFiles.length === 0) {
+                setErrorMessage('Vui lòng tải lên POD design và ít nhất một file PSD.');
+                return;
+            }
         }
 
         setIsProcessing(true);
@@ -109,19 +158,13 @@ const MockupMode: React.FC = () => {
                     // Desktop app - Process with LOCAL Photoshop
                     console.log('🖥️ Processing with LOCAL Photoshop...');
                     
-                    // In Electron, File objects have a 'path' property
-                    // @ts-ignore - Electron adds path property to File object
-                    const podDesignPath = podDesignFile.path;
-                    // @ts-ignore
-                    const psdPaths = psdFiles.map(file => file.path);
-
-                    if (!podDesignPath || psdPaths.some(p => !p)) {
-                        throw new Error('Could not get file paths. Make sure files are selected from local file system.');
+                    if (!podDesignPath || psdFilePaths.length === 0) {
+                        throw new Error('Could not get file paths. Please select files again.');
                     }
 
                     const result = await window.electron.processMockupsPhotoshop({
-                        podDesignPath,
-                        psdPaths
+                        podDesignPath: podDesignPath,
+                        psdPaths: psdFilePaths
                     });
 
                     if (result.success && result.processedImages) {
@@ -132,9 +175,9 @@ const MockupMode: React.FC = () => {
                     }
                 } else {
                     // Web app - Process with SERVER Photoshop
-                    console.log('� Processing with SERVER Photoshop...');
+                    console.log('☁️ Processing with SERVER Photoshop...');
                     const formData = new FormData();
-                    formData.append('sticker', podDesignFile);
+                    formData.append('sticker', podDesignFile!);
                     psdFiles.forEach((file) => {
                         formData.append('psdFiles', file);
                     });
@@ -155,7 +198,7 @@ const MockupMode: React.FC = () => {
             } else {
                 // Fast mode: Client-side processing with ag-psd
                 console.log('⚡ Processing with Fast mode (client-side)...');
-                const results = await processPsdsClientSide(podDesignFile, psdFiles);
+                const results = await processPsdsClientSide(podDesignFile!, psdFiles);
                 setProcessedImages(results);
                 console.log(`✓ Processed ${results.length} mockups client-side`);
             }
@@ -219,15 +262,17 @@ const MockupMode: React.FC = () => {
                         <label className="block text-sm font-medium text-zinc-300 mb-2">
                             POD Design
                         </label>
-                        <input
-                            ref={podDesignInputRef}
-                            type="file"
-                            accept="image/*"
-                            onChange={handlePodDesignUpload}
-                            className="hidden"
-                        />
+                        {!isElectron && (
+                            <input
+                                ref={podDesignInputRef}
+                                type="file"
+                                accept="image/*"
+                                onChange={handlePodDesignUpload}
+                                className="hidden"
+                            />
+                        )}
                         <button
-                            onClick={() => podDesignInputRef.current?.click()}
+                            onClick={() => isElectron ? handlePodDesignUpload() : podDesignInputRef.current?.click()}
                             className="w-full h-32 border-2 border-dashed border-zinc-600 rounded-lg flex flex-col items-center justify-center hover:border-zinc-500 transition-colors"
                         >
                             {podDesignPreview ? (
@@ -236,20 +281,32 @@ const MockupMode: React.FC = () => {
                                     alt="POD design preview"
                                     className="max-h-28 max-w-full object-contain"
                                 />
+                            ) : podDesignPath ? (
+                                <>
+                                    <ImageIcon className="w-8 h-8 text-green-500 mb-2" />
+                                    <span className="text-sm text-green-400">
+                                        ✓ {podDesignPath.split('\\').pop()}
+                                    </span>
+                                </>
                             ) : (
                                 <>
                                     <ImageIcon className="w-8 h-8 text-zinc-500 mb-2" />
-                                    <span className="text-sm text-zinc-500">Tải lên POD design</span>
+                                    <span className="text-sm text-zinc-500">
+                                        {isElectron ? 'Chọn POD design' : 'Tải lên POD design'}
+                                    </span>
                                 </>
                             )}
                         </button>
-                        {podDesignFile && (
+                        {(podDesignFile || podDesignPath) && (
                             <div className="mt-2 flex items-center justify-between text-sm text-zinc-400">
-                                <span className="truncate">{podDesignFile.name}</span>
+                                <span className="truncate">
+                                    {podDesignPath ? podDesignPath.split('\\').pop() : podDesignFile?.name}
+                                </span>
                                 <button
                                     onClick={() => {
                                         setPodDesignFile(null);
                                         setPodDesignPreview(null);
+                                        setPodDesignPath(null);
                                     }}
                                     className="ml-2 text-red-400 hover:text-red-300"
                                 >
@@ -301,39 +358,60 @@ const MockupMode: React.FC = () => {
                         <label className="block text-sm font-medium text-zinc-300 mb-2">
                             File PSD Mockup
                         </label>
-                        <input
-                            ref={psdInputRef}
-                            type="file"
-                            accept=".psd"
-                            multiple
-                            onChange={handlePsdUpload}
-                            className="hidden"
-                        />
+                        {!isElectron && (
+                            <input
+                                ref={psdInputRef}
+                                type="file"
+                                accept=".psd"
+                                multiple
+                                onChange={handlePsdUpload}
+                                className="hidden"
+                            />
+                        )}
                         <button
-                            onClick={() => psdInputRef.current?.click()}
+                            onClick={() => isElectron ? handlePsdUpload() : psdInputRef.current?.click()}
                             className="w-full px-4 py-3 bg-zinc-700 hover:bg-zinc-600 text-white rounded-lg transition-colors flex items-center justify-center"
                         >
                             <ImageIcon className="w-5 h-5 mr-2" />
-                            Thêm file PSD
+                            {isElectron ? 'Chọn file PSD' : 'Thêm file PSD'}
                         </button>
-                        {psdFiles.length > 0 && (
+                        {(psdFiles.length > 0 || psdFilePaths.length > 0) && (
                             <div className="mt-3 space-y-2">
-                                {psdFiles.map((file, index) => (
-                                    <div
-                                        key={index}
-                                        className="flex items-center justify-between bg-zinc-800 p-2 rounded"
-                                    >
-                                        <span className="text-sm text-zinc-300 truncate flex-1">
-                                            {file.name}
-                                        </span>
-                                        <button
-                                            onClick={() => removePsdFile(index)}
-                                            className="ml-2 text-red-400 hover:text-red-300"
+                                {isElectron ? (
+                                    psdFilePaths.map((filePath, index) => (
+                                        <div
+                                            key={index}
+                                            className="flex items-center justify-between bg-zinc-800 p-2 rounded"
                                         >
-                                            <TrashIcon className="w-4 h-4" />
-                                        </button>
-                                    </div>
-                                ))}
+                                            <span className="text-sm text-zinc-300 truncate">
+                                                {filePath.split('\\').pop()}
+                                            </span>
+                                            <button
+                                                onClick={() => removePsdFile(index)}
+                                                className="ml-2 text-red-400 hover:text-red-300"
+                                            >
+                                                <TrashIcon className="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                    ))
+                                ) : (
+                                    psdFiles.map((file, index) => (
+                                        <div
+                                            key={index}
+                                            className="flex items-center justify-between bg-zinc-800 p-2 rounded"
+                                        >
+                                            <span className="text-sm text-zinc-300 truncate">
+                                                {file.name}
+                                            </span>
+                                            <button
+                                                onClick={() => removePsdFile(index)}
+                                                className="ml-2 text-red-400 hover:text-red-300"
+                                            >
+                                                <TrashIcon className="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                    ))
+                                )}
                             </div>
                         )}
                     </div>
@@ -341,7 +419,13 @@ const MockupMode: React.FC = () => {
                     {/* Process Button */}
                     <button
                         onClick={handleProcess}
-                        disabled={!podDesignFile || psdFiles.length === 0 || isProcessing}
+                        disabled={
+                            isProcessing || 
+                            (isElectron 
+                                ? (!podDesignPath || psdFilePaths.length === 0)
+                                : (!podDesignFile || psdFiles.length === 0)
+                            )
+                        }
                         className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-zinc-700 disabled:text-zinc-500 text-white font-medium rounded-lg transition-colors flex items-center justify-center"
                     >
                         {isProcessing ? (

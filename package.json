@@ -25,6 +25,8 @@
     "axios": "^1.7.0",
     "canvas": "^3.2.0",
     "cors": "^2.8.5",
+    "electron-log": "^5.4.3",
+    "electron-updater": "^6.6.2",
     "express": "^4.21.0",
     "handsontable": "^16.1.1",
     "jsonwebtoken": "^9.0.2",
@@ -71,15 +73,31 @@
     "win": {
       "target": [
         {
-          "target": "portable",
+          "target": "nsis",
           "arch": [
             "x64"
           ]
         }
       ],
       "icon": "public/icon.png",
-      "artifactName": "AutoAgents-Agent-${version}-portable.exe"
+      "artifactName": "AutoAgents-Agent-${version}-Setup.exe",
+      "signAndEditExecutable": false,
+      "publisherName": "AutoAgents"
     },
-    "compression": "maximum"
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "zecommedia",
+      "repo": "autoagents-app",
+      "releaseType": "release"
+    },
+    "compression": "maximum",
+    "electronDist": "node_modules/electron/dist",
+    "electronVersion": "33.4.11"
   }
 }
