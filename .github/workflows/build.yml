@@ -11,6 +11,11 @@ on:
         required: false
         default: ''
 
+# Add permissions for the workflow
+permissions:
+  contents: write
+  packages: write
+
 jobs:
   build-windows:
     runs-on: windows-latest
@@ -30,8 +35,8 @@ jobs:
       - name: Build Vite app
         run: npm run build
 
-      - name: Build Electron (Windows)
-        run: npx electron-builder --win
+      - name: Build Electron (Windows) - No Publish
+        run: npx electron-builder --win --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -40,9 +45,9 @@ jobs:
         with:
           name: windows-build
           path: |
-            dist-electron-v115/*.exe
-            dist-electron-v115/*.exe.blockmap
-            dist-electron-v115/latest.yml
+            electron-dist/*.exe
+            electron-dist/*.exe.blockmap
+            electron-dist/latest.yml
 
   build-macos:
     runs-on: macos-latest
@@ -62,25 +67,19 @@ jobs:
       - name: Build Vite app
         run: npm run build
 
-      - name: Build Electron (macOS)
-        run: npx electron-builder --mac
+      - name: Build Electron (macOS) - No Publish
+        run: npx electron-builder --mac --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # For code signing (optional - add these secrets if you have Apple Developer account)
-          # CSC_LINK: ${{ secrets.MAC_CERTS }}
-          # CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTS_PASSWORD }}
-          # APPLE_ID: ${{ secrets.APPLE_ID }}
-          # APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
           name: macos-build
           path: |
-            dist-electron-v115/*.dmg
-            dist-electron-v115/*.zip
-            dist-electron-v115/latest-mac.yml
+            electron-dist/*.dmg
+            electron-dist/*.zip
+            electron-dist/latest-mac.yml
 
   build-linux:
     runs-on: ubuntu-latest
@@ -100,8 +99,8 @@ jobs:
       - name: Build Vite app
         run: npm run build
 
-      - name: Build Electron (Linux)
-        run: npx electron-builder --linux
+      - name: Build Electron (Linux) - No Publish, AppImage only
+        run: npx electron-builder --linux AppImage --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -110,9 +109,8 @@ jobs:
         with:
           name: linux-build
           path: |
-            dist-electron-v115/*.AppImage
-            dist-electron-v115/*.deb
-            dist-electron-v115/latest-linux.yml
+            electron-dist/*.AppImage
+            electron-dist/latest-linux.yml
 
   create-release:
     needs: [build-windows, build-macos, build-linux]
@@ -128,7 +126,7 @@ jobs:
         run: find artifacts -type f
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             artifacts/windows-build/*
